@@ -9,6 +9,7 @@
 /*====================
    COLOR SETTINGS
  *====================*/
+#define LV_FONT_MONTSERRAT_28 1
 #define LV_FONT_MONTSERRAT_20 1
 #define LV_FONT_UNSCII_16 1
 #define LV_COLOR_DEPTH 16

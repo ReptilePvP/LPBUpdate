@@ -2533,21 +2533,36 @@ void createViewLogsScreen() {
 }
 
 void initStyles() {
+    // Screen style with gradient background
     lv_style_init(&style_screen);
-    lv_style_set_bg_color(&style_screen, lv_color_hex(0x1A1A1A));
+    lv_style_set_bg_opa(&style_screen, LV_OPA_COVER);
+    lv_style_set_bg_color(&style_screen, lv_color_hex(0x1E1E2F)); // Dark blue-gray base
+    lv_style_set_bg_grad_color(&style_screen, lv_color_hex(0x3A3A5A)); // Lighter gradient
+    lv_style_set_bg_grad_dir(&style_screen, LV_GRAD_DIR_VER);
     lv_style_set_border_width(&style_screen, 0);
 
+    // Title style
     lv_style_init(&style_title);
     lv_style_set_text_font(&style_title, &lv_font_montserrat_24);
-    lv_style_set_text_color(&style_title, lv_color_white());
+    lv_style_set_text_color(&style_title, lv_color_hex(0xFFFFFF));
+    lv_style_set_shadow_color(&style_title, lv_color_hex(0xAAAAAA));
+    lv_style_set_shadow_width(&style_title, 10);
+    lv_style_set_shadow_spread(&style_title, 2);
 
+    // Button style
     lv_style_init(&style_btn);
-    lv_style_set_bg_color(&style_btn, lv_color_hex(0x444444));
-    lv_style_set_border_width(&style_btn, 1);
-    lv_style_set_border_color(&style_btn, lv_color_hex(0x666666));
+    lv_style_set_bg_color(&style_btn, lv_color_hex(0x4A90E2)); // Bright blue
+    lv_style_set_bg_opa(&style_btn, LV_OPA_COVER);
+    lv_style_set_border_width(&style_btn, 0);
+    lv_style_set_radius(&style_btn, 8);
+    lv_style_set_shadow_color(&style_btn, lv_color_hex(0x333333));
+    lv_style_set_shadow_width(&style_btn, 10);
+    lv_style_set_text_color(&style_btn, lv_color_white());
 
+    // Button pressed style
     lv_style_init(&style_btn_pressed);
-    lv_style_set_bg_color(&style_btn_pressed, lv_color_hex(0x666666));
+    lv_style_set_bg_color(&style_btn_pressed, lv_color_hex(0x357ABD)); // Darker blue
+    lv_style_set_shadow_width(&style_btn_pressed, 5);
 
     lv_style_init(&style_text);
     lv_style_set_text_color(&style_text, lv_color_hex(0xFFFFFF));
@@ -3081,9 +3096,12 @@ void createBrightnessSettingsScreen() {
     DEBUG_PRINT("Entering createBrightnessSettingsScreen");
     
     if (settings_screen) {
-        DEBUG_PRINTF("Deleting existing settings_screen: %p\n", settings_screen);
+        DEBUG_PRINTF("Cleaning and deleting existing settings_screen: %p\n", settings_screen);
+        lv_obj_clean(settings_screen);
         lv_obj_del(settings_screen);
         settings_screen = nullptr;
+        lv_task_handler();
+        delay(10);
     }
     
     settings_screen = lv_obj_create(NULL);
@@ -3093,88 +3111,57 @@ void createBrightnessSettingsScreen() {
     }
     DEBUG_PRINTF("Created settings_screen: %p\n", settings_screen);
     
-    // Ensure style_screen is initialized (reinitialize to be safe)
-    DEBUG_PRINT("Checking style_screen");
-    lv_style_init(&style_screen); // Safe to call again; resets if corrupted
-    lv_style_set_bg_color(&style_screen, lv_color_hex(0x1A1A1A));
-    lv_style_set_border_width(&style_screen, 0);
-    DEBUG_PRINT("Applying style to settings_screen");
     lv_obj_add_style(settings_screen, &style_screen, 0);
-    
-    DEBUG_PRINT("Loading settings_screen");
     lv_scr_load(settings_screen);
     DEBUG_PRINT("Screen loaded");
 
-    // Add header
+    // Header with gradient
     lv_obj_t* header = lv_obj_create(settings_screen);
-    if (!header) {
-        DEBUG_PRINT("Failed to create header");
-        return;
-    }
-    DEBUG_PRINTF("Created header: %p\n", header);
-    lv_obj_set_size(header, SCREEN_WIDTH, 50);
-    lv_obj_set_style_bg_color(header, lv_color_hex(0x333333), 0);
+    lv_obj_set_size(header, SCREEN_WIDTH, 60);
+    lv_obj_set_style_bg_color(header, lv_color_hex(0x4A90E2), 0);
+    lv_obj_set_style_bg_grad_color(header, lv_color_hex(0x357ABD), 0);
+    lv_obj_set_style_bg_grad_dir(header, LV_GRAD_DIR_VER, 0);
     lv_obj_t* title = lv_label_create(header);
-    if (!title) {
-        DEBUG_PRINT("Failed to create title");
-        return;
-    }
-    DEBUG_PRINTF("Created title: %p\n", title);
     lv_label_set_text(title, "Display Brightness");
     lv_obj_add_style(title, &style_title, 0);
     lv_obj_align(title, LV_ALIGN_CENTER, 0, 0);
 
-    // Add status indicators
-    DEBUG_PRINT("Adding WiFi indicator");
+    // Status indicators
     addWifiIndicator(settings_screen);
-    DEBUG_PRINT("Adding Battery indicator");
     addBatteryIndicator(settings_screen);
     
-    // Create a container for brightness controls
+    // Container with subtle shadow
     lv_obj_t* container = lv_obj_create(settings_screen);
-    if (!container) {
-        DEBUG_PRINT("Failed to create container");
-        return;
-    }
-    DEBUG_PRINTF("Created container: %p\n", container);
-    lv_obj_set_size(container, 280, 180);
-    lv_obj_align(container, LV_ALIGN_TOP_MID, 0, 60);
-    lv_obj_set_style_bg_color(container, lv_color_hex(0x2D2D2D), 0);
-    lv_obj_set_style_pad_all(container, 15, 0);
+    lv_obj_set_size(container, 300, 200);
+    lv_obj_align(container, LV_ALIGN_TOP_MID, 0, 70);
+    lv_obj_set_style_bg_color(container, lv_color_hex(0x2A2A40), 0);
+    lv_obj_set_style_radius(container, 10, 0);
+    lv_obj_set_style_shadow_color(container, lv_color_hex(0x333333), 0);
+    lv_obj_set_style_shadow_width(container, 15, 0);
+    lv_obj_set_style_pad_all(container, 20, 0);
     
     // Brightness value label
     lv_obj_t* brightnessValueLabel = lv_label_create(container);
-    if (!brightnessValueLabel) {
-        DEBUG_PRINT("Failed to create brightnessValueLabel");
-        return;
-    }
-    DEBUG_PRINTF("Created brightnessValueLabel: %p\n", brightnessValueLabel);
     char buf[16];
     snprintf(buf, sizeof(buf), "%d%%", (displayBrightness * 100) / 255);
     lv_label_set_text(brightnessValueLabel, buf);
-    lv_obj_align(brightnessValueLabel, LV_ALIGN_TOP_MID, 0, 10);
-    lv_obj_set_style_text_font(brightnessValueLabel, &lv_font_montserrat_20, 0);
-    
-    // Brightness slider
+    lv_obj_align(brightnessValueLabel, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_set_style_text_font(brightnessValueLabel, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_color(brightnessValueLabel, lv_color_hex(0xFFFFFF), 0);
+
+    // Brightness slider with custom colors
     lv_obj_t* brightnessSlider = lv_slider_create(container);
-    if (!brightnessSlider) {
-        DEBUG_PRINT("Failed to create brightnessSlider");
-        return;
-    }
-    DEBUG_PRINTF("Created brightnessSlider: %p\n", brightnessSlider);
-    lv_obj_set_width(brightnessSlider, 240);
-    lv_obj_align(brightnessSlider, LV_ALIGN_TOP_MID, 0, 50);
+    lv_obj_set_width(brightnessSlider, 260);
+    lv_obj_align(brightnessSlider, LV_ALIGN_TOP_MID, 0, 40);
     lv_slider_set_range(brightnessSlider, 10, 255);
     lv_slider_set_value(brightnessSlider, displayBrightness, LV_ANIM_OFF);
+    lv_obj_set_style_bg_color(brightnessSlider, lv_color_hex(0x4A90E2), LV_PART_KNOB);
+    lv_obj_set_style_bg_color(brightnessSlider, lv_color_hex(0xCCCCCC), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(brightnessSlider, lv_color_hex(0xFFFFFF), LV_PART_INDICATOR);
     
     // Preset buttons
     lv_obj_t* presetContainer = lv_obj_create(container);
-    if (!presetContainer) {
-        DEBUG_PRINT("Failed to create presetContainer");
-        return;
-    }
-    DEBUG_PRINTF("Created presetContainer: %p\n", presetContainer);
-    lv_obj_set_size(presetContainer, 240, 40);
+    lv_obj_set_size(presetContainer, 260, 50);
     lv_obj_align(presetContainer, LV_ALIGN_TOP_MID, 0, 90);
     lv_obj_set_style_bg_opa(presetContainer, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(presetContainer, 0, 0);
@@ -3186,20 +3173,11 @@ void createBrightnessSettingsScreen() {
     
     for (int i = 0; i < 3; i++) {
         lv_obj_t* btn = lv_btn_create(presetContainer);
-        if (!btn) {
-            DEBUG_PRINT("Failed to create preset button");
-            return;
-        }
-        DEBUG_PRINTF("Created preset button %d: %p\n", i, btn);
-        lv_obj_set_size(btn, 70, 30);
+        lv_obj_set_size(btn, 80, 40);
         lv_obj_add_style(btn, &style_btn, 0);
         lv_obj_add_style(btn, &style_btn_pressed, LV_STATE_PRESSED);
         
         lv_obj_t* label = lv_label_create(btn);
-        if (!label) {
-            DEBUG_PRINT("Failed to create preset label");
-            return;
-        }
         lv_label_set_text(label, presets[i]);
         lv_obj_center(label);
         
@@ -3208,7 +3186,6 @@ void createBrightnessSettingsScreen() {
         lv_obj_add_event_cb(btn, [](lv_event_t* e) {
             lv_obj_t* btn = lv_event_get_target(e);
             uint8_t value = (uint8_t)(uintptr_t)lv_obj_get_user_data(btn);
-            
             lv_obj_t* presetContainer = lv_obj_get_parent(btn);
             lv_obj_t* container = lv_obj_get_parent(presetContainer);
             lv_obj_t* slider = lv_obj_get_child(container, 1);
@@ -3230,17 +3207,15 @@ void createBrightnessSettingsScreen() {
         }, LV_EVENT_CLICKED, NULL);
     }
     
-    // Event handler for slider
+    // Slider event handler
     lv_obj_add_event_cb(brightnessSlider, [](lv_event_t* e) {
         lv_obj_t* slider = lv_event_get_target(e);
         displayBrightness = lv_slider_get_value(slider);
-        
         lv_obj_t* container = lv_obj_get_parent(slider);
         lv_obj_t* valueLabel = lv_obj_get_child(container, 0);
         char buf[16];
         snprintf(buf, sizeof(buf), "%d%%", (displayBrightness * 100) / 255);
         lv_label_set_text(valueLabel, buf);
-        
         M5.Display.setBrightness(displayBrightness);
         
         Preferences prefs;
@@ -3253,22 +3228,12 @@ void createBrightnessSettingsScreen() {
 
     // Back button
     lv_obj_t* back_btn = lv_btn_create(settings_screen);
-    if (!back_btn) {
-        DEBUG_PRINT("Failed to create back_btn");
-        return;
-    }
-    DEBUG_PRINTF("Created back_btn: %p\n", back_btn);
-    lv_obj_set_size(back_btn, 120, 40);
+    lv_obj_set_size(back_btn, 140, 50);
     lv_obj_align(back_btn, LV_ALIGN_BOTTOM_MID, 0, -20);
     lv_obj_add_style(back_btn, &style_btn, 0);
     lv_obj_add_style(back_btn, &style_btn_pressed, LV_STATE_PRESSED);
     
     lv_obj_t* back_label = lv_label_create(back_btn);
-    if (!back_label) {
-        DEBUG_PRINT("Failed to create back_label");
-        return;
-    }
-    DEBUG_PRINTF("Created back_label: %p\n", back_label);
     lv_label_set_text(back_label, "Back");
     lv_obj_center(back_label);
     
@@ -3278,32 +3243,20 @@ void createBrightnessSettingsScreen() {
     
     // Auto-brightness option
     lv_obj_t* auto_container = lv_obj_create(container);
-    if (!auto_container) {
-        DEBUG_PRINT("Failed to create auto_container");
-        return;
-    }
-    DEBUG_PRINTF("Created auto_container: %p\n", auto_container);
-    lv_obj_set_size(auto_container, 240, 40);
-    lv_obj_align(auto_container, LV_ALIGN_TOP_MID, 0, 130);
+    lv_obj_set_size(auto_container, 260, 50);
+    lv_obj_align(auto_container, LV_ALIGN_TOP_MID, 0, 140);
     lv_obj_set_style_bg_opa(auto_container, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(auto_container, 0, 0);
     
     lv_obj_t* auto_label = lv_label_create(auto_container);
-    if (!auto_label) {
-        DEBUG_PRINT("Failed to create auto_label");
-        return;
-    }
-    DEBUG_PRINTF("Created auto_label: %p\n", auto_label);
     lv_label_set_text(auto_label, "Auto Brightness");
     lv_obj_align(auto_label, LV_ALIGN_LEFT_MID, 0, 0);
+    lv_obj_set_style_text_font(auto_label, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(auto_label, lv_color_hex(0xFFFFFF), 0);
     
     lv_obj_t* auto_switch = lv_switch_create(auto_container);
-    if (!auto_switch) {
-        DEBUG_PRINT("Failed to create auto_switch");
-        return;
-    }
-    DEBUG_PRINTF("Created auto_switch: %p\n", auto_switch);
     lv_obj_align(auto_switch, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_set_style_bg_color(auto_switch, lv_color_hex(0x4A90E2), LV_PART_KNOB);
     
     Preferences prefs;
     prefs.begin("settings", false);
@@ -3317,7 +3270,6 @@ void createBrightnessSettingsScreen() {
     lv_obj_add_event_cb(auto_switch, [](lv_event_t* e) {
         lv_obj_t* sw = lv_event_get_target(e);
         bool auto_brightness = lv_obj_has_state(sw, LV_STATE_CHECKED);
-        
         lv_obj_t* container = lv_obj_get_parent(lv_obj_get_parent(sw));
         lv_obj_t* slider = lv_obj_get_child(container, 1);
         lv_obj_t* presetContainer = lv_obj_get_child(container, 2);
