@@ -84,4 +84,18 @@
  .pio/libdeps/m5stack-cores3/lvgl/src/extra/widgets/calendar/../../../core/lv_obj_class.h \
  .pio/libdeps/m5stack-cores3/lvgl/src/extra/widgets/calendar/../../../core/lv_event.h \
  .pio/libdeps/m5stack-cores3/lvgl/src/extra/widgets/calendar/../../../core/lv_group.h \
- .pio/libdeps/m5stack-cores3/lvgl/src/extra/widgets/calendar/../../../core/../misc/lv_ll.h
+ .pio/libdeps/m5stack-cores3/lvgl/src/extra/widgets/calendar/../../../core/../misc/lv_ll.h \
+ .pio/libdeps/m5stack-cores3/lvgl/src/extra/widgets/calendar/lv_calendar.h \
+ .pio/libdeps/m5stack-cores3/lvgl/src/extra/widgets/calendar/../../../widgets/lv_btnmatrix.h \
+ .pio/libdeps/m5stack-cores3/lvgl/src/extra/widgets/calendar/../../../widgets/../lv_conf_internal.h \
+ .pio/libdeps/m5stack-cores3/lvgl/src/extra/widgets/calendar/../../../widgets/../core/lv_obj.h \
+ .pio/libdeps/m5stack-cores3/lvgl/src/extra/widgets/calendar/../../../widgets/lv_dropdown.h \
+ .pio/libdeps/m5stack-cores3/lvgl/src/extra/widgets/calendar/../../../widgets/../widgets/lv_label.h \
+ .pio/libdeps/m5stack-cores3/lvgl/src/extra/widgets/calendar/../../../widgets/../widgets/../lv_conf_internal.h \
+ .pio/libdeps/m5stack-cores3/lvgl/src/extra/widgets/calendar/../../../widgets/../widgets/../core/lv_obj.h \
+ .pio/libdeps/m5stack-cores3/lvgl/src/extra/widgets/calendar/../../../widgets/../widgets/../font/lv_font.h \
+ .pio/libdeps/m5stack-cores3/lvgl/src/extra/widgets/calendar/../../../widgets/../widgets/../font/lv_symbol_def.h \
+ .pio/libdeps/m5stack-cores3/lvgl/src/extra/widgets/calendar/../../../widgets/../widgets/../misc/lv_txt.h \
+ .pio/libdeps/m5stack-cores3/lvgl/src/extra/widgets/calendar/../../../widgets/../widgets/../draw/lv_draw.h \
+ .pio/libdeps/m5stack-cores3/lvgl/src/extra/widgets/calendar/../../layouts/flex/lv_flex.h \
+ .pio/libdeps/m5stack-cores3/lvgl/src/extra/widgets/calendar/../../layouts/flex/../../../core/lv_obj.h

@@ -1,6 +1,5 @@
 #include <Adafruit_BusIO_Register.h>
 #include "WiFiManager.h"
-#include <ESP32Time.h>
 #include <HTTPClient.h>
 #include <Wire.h>
 #include <M5Unified.h>
@@ -14,8 +13,51 @@ SPIClass SPI_SD; // Custom SPI instance for SD card
 #include <SD.h>
 #include <time.h>
 
+// Forward declarations for date and time screens
+static void createDateSelectionScreen();
+static void createTimeSelectionScreen();
+static void confirm_dialog_event_cb(lv_event_t* e);
+static void save_time_to_rtc();
+
+// Static callback handlers for date and time selection
+static void on_year_change(lv_event_t* e);
+static void on_month_change(lv_event_t* e);
+static void on_day_change(lv_event_t* e);
+static void on_hour_change(lv_event_t* e);
+static void on_minute_change(lv_event_t* e);
+
+// Static pointers to remember rollers between callbacks
+static lv_obj_t* g_year_roller = nullptr;
+static lv_obj_t* g_month_roller = nullptr;
+static lv_obj_t* g_day_roller = nullptr;
+static lv_obj_t* g_selected_date_label = nullptr;
+static lv_obj_t* g_hour_roller = nullptr;
+static lv_obj_t* g_minute_roller = nullptr;
+static lv_obj_t* g_selected_time_label = nullptr;
+
+// Add these constants near the top of your file with other defines
+#define AXP2101_ADDR 0x34
+#define AW9523_ADDR 0x58
+
+// UI elements
+lv_obj_t* battery_icon = nullptr;
+lv_obj_t* battery_label = nullptr;
+lv_obj_t* wifi_label = nullptr;
+lv_obj_t* time_label = nullptr; // New time display label
+
+// Styles for hybrid UI
+static lv_style_t style_card_action;     // Interactive cards (New Entry, Logs)
+static lv_style_t style_card_info;       // Info cards (Battery, WiFi)
+static lv_style_t style_card_pressed;    // Pressed state for interactive cards
+
 // Global WiFiManager instance
 WiFiManager wifiManager;
+
+// Global variables to store selected time temporarily
+static int selected_hour = 0, selected_minute = 0, selected_is_pm = 0; // 0 = AM, 1 = PM
+// Global variables to store selected date/time temporarily
+static lv_calendar_date_t selected_date = {2025, 3, 15}; // Default date
+
 
 // Debug flag - set to true to enable debug output
 #define DEBUG_ENABLED true
@@ -41,10 +83,6 @@ void initStyles();
 void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p);
 void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data);
 void createMainMenu();
-void updateWifiIndicator();
-void addWifiIndicator(lv_obj_t *screen);
-void addBatteryIndicator(lv_obj_t *screen);
-void updateBatteryIndicator();
 void createGenderMenu();
 void createColorMenuShirt();
 void createColorMenuPants();
@@ -61,17 +99,18 @@ void saveNetworks();
 void connectToSavedNetworks();
 String getFormattedEntry(const String& entry);
 String getTimestamp();
-bool appendToLog(const String& entry);
+bool appendToLog(const String& entry); // Already correct in your code
 void createViewLogsScreen();
 void initFileSystem();
-void syncTimeWithNTP();
 void listSavedEntries();
 void saveEntry(const String& entry);
 void updateStatus(const char* message, uint32_t color);
 void sendWebhook(const String& entry);
 void onWiFiScanComplete(const std::vector<NetworkInfo>& results);
-void onWiFiStatus(WiFiState state, const String& message);
-
+void updateWiFiLoadingScreen(bool success, const String& message);
+void showWiFiLoadingScreen(const String& ssid);
+void addTimeDisplay(lv_obj_t *screen); // New function to add a time display
+void updateTimeDisplay(); // Function to update the time display periodically
 
 // Global variables for scrolling
 lv_obj_t *current_scroll_obj = nullptr;
@@ -81,8 +120,9 @@ const int SCROLL_AMOUNT = 40;  // Pixels to scroll per button press
 String selectedShirtColors = "";
 String selectedPantsColors = "";
 String selectedShoesColors = "";
+String selectedGender = "";    // Added
+String selectedItem = "";      // Added
 
-ESP32Time rtc; // ESP32Time object to manage RTC
 
 // WiFi connection management
 unsigned long lastWiFiConnectionAttempt = 0;
@@ -90,7 +130,6 @@ const unsigned long WIFI_RECONNECT_INTERVAL = 10000; // 10 seconds between conne
 const int MAX_WIFI_CONNECTION_ATTEMPTS = 5; // Maximum number of consecutive connection attempts
 int wifiConnectionAttempts = 0;
 bool wifiReconnectEnabled = true;
-
 
 // WiFi scan management
 bool wifiScanInProgress = false;
@@ -121,8 +160,11 @@ static int currentLogPage = 0;
 static int totalLogPages = 0;
 static const int LOGS_PER_PAGE = 8;
 
-// Status bar
-static lv_obj_t* status_bar = nullptr;
+lv_obj_t* status_bar = nullptr;
+char current_status_msg[32] = "";
+
+uint32_t current_status_color = 0xFFFFFF;
+uint32_t error_status_color = 0xFF0000;
 
 // Screen dimensions for CoreS3
 #define SCREEN_WIDTH 320
@@ -135,6 +177,10 @@ static lv_color_t buf1[SCREEN_WIDTH * 20];  // Increased buffer size
 // Display and input drivers
 static lv_disp_drv_t disp_drv;
 static lv_indev_drv_t indev_drv;
+
+// LVGL semaphore for thread safety (from CoreS3 User Demo)
+SemaphoreHandle_t xGuiSemaphore;
+#define LV_TICK_PERIOD_MS 10
 
 // Default WiFi credentials (will be overridden by saved networks)
 const char DEFAULT_SSID[] = "Wack House";
@@ -154,35 +200,6 @@ struct LogEntry {
     time_t timestamp;
 };
 
-time_t parseTimestamp(const String& entry) {
-    struct tm timeinfo = {0};
-    int day, year, hour, minute, second;
-    char monthStr[4]; // For 3-letter month abbreviation + null terminator
-
-    // Expecting format: "DD-MMM-YYYY HH:MM:SS" (e.g., "05-Mar-2025 08:12:24")
-    if (sscanf(entry.c_str(), "%d-%3s-%d %d:%d:%d", &day, monthStr, &year, &hour, &minute, &second) == 6) {
-        timeinfo.tm_mday = day;
-        timeinfo.tm_year = year - 1900; // Years since 1900
-        timeinfo.tm_hour = hour;
-        timeinfo.tm_min = minute;
-        timeinfo.tm_sec = second;
-        timeinfo.tm_isdst = -1; // Let mktime figure out DST
-
-        // Convert 3-letter month abbreviation to month number (0-11)
-        static const char* months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", 
-                                       "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
-        for (int i = 0; i < 12; i++) {
-            if (strncmp(monthStr, months[i], 3) == 0) {
-                timeinfo.tm_mon = i;
-                break;
-            }
-        }
-
-        return mktime(&timeinfo);
-    }
-    return 0; // Invalid timestamp
-}
-
 void setSystemTimeFromRTC() {
     m5::rtc_date_t DateStruct;
     m5::rtc_time_t TimeStruct;
@@ -191,23 +208,32 @@ void setSystemTimeFromRTC() {
 
     struct tm timeinfo = {0};
     timeinfo.tm_year = DateStruct.year - 1900; // Years since 1900
-    timeinfo.tm_mon = DateStruct.month - 1;     // Months 0-11
+    timeinfo.tm_mon = DateStruct.month - 1;    // Months 0-11
     timeinfo.tm_mday = DateStruct.date;
     timeinfo.tm_hour = TimeStruct.hours;
     timeinfo.tm_min = TimeStruct.minutes;
     timeinfo.tm_sec = TimeStruct.seconds;
-    timeinfo.tm_isdst = -1; // Let mktime figure out DST
+    timeinfo.tm_isdst = -1; // Let system handle DST if applicable
 
     time_t t = mktime(&timeinfo);
     struct timeval tv = { .tv_sec = t, .tv_usec = 0 };
     settimeofday(&tv, NULL);
     DEBUG_PRINT("System time set from RTC");
+
+    // Optional: Log current time for verification
+    struct tm timeinfo_check;
+    if (getLocalTime(&timeinfo_check)) {
+        char timeStr[64];
+        strftime(timeStr, sizeof(timeStr), "%A, %B %d %Y %I:%M:%S %p", &timeinfo_check);
+        DEBUG_PRINTF("Current local time: %s", timeStr);
+    }
 }
+
 // Global vector for parsed log entries
 static std::vector<LogEntry> parsedLogEntries;
 
-// Add these near other global LVGL object declarations
-lv_obj_t* settingsScreen = nullptr;
+lv_obj_t *item_list = nullptr;  // Add this with other global LVGL objects
+
 bool wifiEnabled = true; // Already suggested in battery optimization; reusing here
 uint8_t displayBrightness = 128; // Current brightness (0-255)
 
@@ -227,6 +253,18 @@ static bool was_touching = false;  // Add this line
 const int TOUCH_SWIPE_THRESHOLD = 30;  // Pixels for a swipe
 const int TOUCH_MAX_SWIPE_TIME = 700;  // Max time (ms) for a swipe
 
+// LVGL tick task from CoreS3 User Demo (modified for compatibility)
+static void lvgl_tick_task(void *arg) {
+    (void)arg;
+    // Use lv_tick_get instead of lv_tick_inc which is not available in this LVGL version
+    static uint32_t last_tick = 0;
+    uint32_t current_tick = millis();
+    if (current_tick - last_tick > LV_TICK_PERIOD_MS) {
+        last_tick = current_tick;
+        lv_task_handler(); // Process LVGL tasks
+    }
+}
+
 // Menu options
 const char* genders[] = {"Male", "Female"};
 
@@ -236,6 +274,14 @@ lv_obj_t* shirt_next_btn = nullptr;
 lv_obj_t* pants_next_btn = nullptr;
 lv_obj_t* shoes_next_btn = nullptr;
 lv_obj_t* settings_screen = nullptr;
+lv_obj_t* view_logs_screen = nullptr;
+lv_obj_t* settingsScreen = nullptr;
+
+// Add these global variables with other UI elements
+lv_obj_t* wifi_loading_screen = nullptr;
+lv_obj_t* wifi_loading_spinner = nullptr;
+lv_obj_t* wifi_loading_label = nullptr;
+lv_obj_t* wifi_result_label = nullptr;
 
 const char* shirtColors[] = {
     "Red", "Orange", "Yellow", "Green", "Blue", "Purple", 
@@ -256,8 +302,6 @@ const char* items[] = {"Jewelry", "Women's Shoes", "Men's Shoes", "Cosmetics", "
 
 // LVGL objects
 lv_obj_t *mainScreen = nullptr, *genderMenu = nullptr, *colorMenu = nullptr, *itemMenu = nullptr, *confirmScreen = nullptr;
-lv_obj_t *wifiIndicator = nullptr;
-lv_obj_t *batteryIndicator = nullptr;
 lv_obj_t *wifi_screen = nullptr;
 lv_obj_t *wifi_manager_screen = nullptr;
 lv_obj_t *wifi_list = nullptr;
@@ -341,6 +385,7 @@ const char *btnm_mapplus[11][23] = {
   };
 
 
+
 // Number of keyboard pages
 const int NUM_KEYBOARD_PAGES = sizeof(btnm_mapplus) / sizeof(btnm_mapplus[0]);
 
@@ -348,38 +393,395 @@ const int NUM_KEYBOARD_PAGES = sizeof(btnm_mapplus) / sizeof(btnm_mapplus[0]);
 #define LOG_FILENAME "/loss_prevention_log.txt"
 bool fileSystemInitialized = false;
 
-// Time settings
-const char* ntpServer = "pool.ntp.org";
-const long gmtOffset_sec = -18000;  // Eastern Time -5 hours
-const int daylightOffset_sec = 3600; // 1 hour DST
+// Update parseTimestamp to handle the new format
+time_t parseTimestamp(const String& entry) {
+    struct tm timeinfo = {0};
+    int day, year, hour, minute, second;
+    char monthStr[4]; // For 3-letter month abbreviation + null terminator
 
-//Function to sync time with NTP
-void syncTimeWithNTP() {
-    configTime(gmtOffset_sec / 3600, daylightOffset_sec, ntpServer);
-    struct tm timeinfo;
-    if (getLocalTime(&timeinfo)) {
-        DEBUG_PRINT("NTP time synchronized");
-        // Update RTC with NTP time
-        m5::rtc_time_t TimeStruct;
-        TimeStruct.hours = timeinfo.tm_hour;
-        TimeStruct.minutes = timeinfo.tm_min;
-        TimeStruct.seconds = timeinfo.tm_sec;
-        M5.Rtc.setTime(&TimeStruct);
+    // Expecting format: "DD-MMM-YYYY HH:MM:SS" (e.g., "05-Mar-2025 08:12:24")
+    if (sscanf(entry.c_str(), "%d-%3s-%d %d:%d:%d", &day, monthStr, &year, &hour, &minute, &second) == 6) {
+        timeinfo.tm_mday = day;
+        timeinfo.tm_year = year - 1900; // Years since 1900
+        timeinfo.tm_hour = hour;
+        timeinfo.tm_min = minute;
+        timeinfo.tm_sec = second;
+        timeinfo.tm_isdst = -1; // Let mktime figure out DST
 
-        m5::rtc_date_t DateStruct;
-        DateStruct.year = timeinfo.tm_year + 1900;
-        DateStruct.month = timeinfo.tm_mon + 1;
-        DateStruct.date = timeinfo.tm_mday;
-        DateStruct.weekDay = timeinfo.tm_wday;
-        M5.Rtc.setDate(&DateStruct);
+        // Convert 3-letter month abbreviation to month number (0-11)
+        static const char* months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", 
+                                       "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+        for (int i = 0; i < 12; i++) {
+            if (strncmp(monthStr, months[i], 3) == 0) {
+                timeinfo.tm_mon = i;
+                break;
+            }
+        }
 
-        // Update system time after RTC sync
-        setSystemTimeFromRTC();
-        DEBUG_PRINT("RTC and system time updated with NTP");
+        return mktime(&timeinfo);
+    }
+    return 0; // Invalid timestamp
+}
+String getTimestamp() {
+    m5::rtc_date_t DateStruct;
+    m5::rtc_time_t TimeStruct;
+    M5.Rtc.getDate(&DateStruct);
+    M5.Rtc.getTime(&TimeStruct);
+
+    struct tm timeinfo = {0};
+    timeinfo.tm_year = DateStruct.year - 1900; // Years since 1900
+    timeinfo.tm_mon = DateStruct.month - 1;     // Months 0-11
+    timeinfo.tm_mday = DateStruct.date;
+    timeinfo.tm_hour = TimeStruct.hours;
+    timeinfo.tm_min = TimeStruct.minutes;
+    timeinfo.tm_sec = TimeStruct.seconds;
+    timeinfo.tm_isdst = -1;
+
+    if (timeinfo.tm_year > 70) { // Valid time (year > 1970)
+        char buffer[25];
+        strftime(buffer, sizeof(buffer), "%d-%b-%Y %H:%M:%S", &timeinfo); // e.g., "05-Mar-2025 08:12:24"
+        return String(buffer);
+    }
+    return "NoTime"; // Fallback if RTC isn’t set
+}
+// Example usage in logging
+bool appendToLog(const String& entry) {
+    if (!fileSystemInitialized) {
+        DEBUG_PRINT("File system not initialized, attempting to initialize...");
+        initFileSystem();
+        if (!fileSystemInitialized) {
+            DEBUG_PRINT("File system not initialized, cannot save entry");
+            return false;
+        }
+    }
+    
+    SPI.end();
+    delay(100);
+    SPI_SD.begin(SD_SPI_SCK_PIN, SD_SPI_MISO_PIN, SD_SPI_MOSI_PIN, -1);
+    pinMode(SD_SPI_CS_PIN, OUTPUT);
+    digitalWrite(SD_SPI_CS_PIN, HIGH);
+    delay(100);
+    
+    File file = SD.open(LOG_FILENAME, FILE_APPEND);
+    if (!file) {
+        DEBUG_PRINT("Failed to open log file for writing");
+        SPI_SD.end();
+        SPI.begin();
+        pinMode(TFT_DC, OUTPUT);
+        digitalWrite(TFT_DC, HIGH);
+        return false;
+    }
+    
+    String timestamp = getTimestamp();
+    String formattedEntry = timestamp + ": " + entry; // e.g., "05-Mar-2025 14:31:53: Male,Blue+Green+Red+Orange,..."
+    DEBUG_PRINTF("Raw entry text: %s\n", formattedEntry.c_str());
+    size_t bytesWritten = file.println(formattedEntry);
+    file.close();
+    
+    SPI_SD.end();
+    SPI.begin();
+    pinMode(TFT_DC, OUTPUT);
+    digitalWrite(TFT_DC, HIGH);
+    
+    if (bytesWritten == 0) {
+        DEBUG_PRINT("Failed to write to log file");
+        return false;
+    }
+    
+    DEBUG_PRINTF("Entry saved to file (%d bytes): %s\n", bytesWritten, formattedEntry.c_str());
+    return true;
+}
+
+// Save entry to SD card and send to Zapier if connected
+void saveEntry(const String& entry) {
+    Serial.println("New Entry:");
+    Serial.println(entry);
+    
+    bool saved = appendToLog(entry); // Save to SD card
+    
+    if (WiFi.status() == WL_CONNECTED) {
+        sendWebhook(entry); // Send to Discord
+        if (saved) {
+            updateStatus("Entry Saved & Sent", 0x00FF00);
+        } else {
+            updateStatus("Error Saving Entry", 0xFF0000);
+        }
     } else {
-        DEBUG_PRINT("Failed to sync with NTP");
+        if (saved) {
+            updateStatus("Offline: Entry Saved Locally", 0xFFFF00);
+        } else {
+            updateStatus("Error: Failed to Save Entry", 0xFF0000);
+        }
     }
 }
+
+void createViewLogsScreen() {
+    DEBUG_PRINT("Creating new view logs screen");
+
+    parsedLogEntries.clear();
+
+    lv_obj_t* logs_screen = lv_obj_create(NULL);
+    lv_obj_add_style(logs_screen, &style_screen, 0);
+
+    lv_obj_t* header = lv_obj_create(logs_screen);
+    lv_obj_set_size(header, SCREEN_WIDTH, 40);
+    lv_obj_set_pos(header, 0, 0);
+    lv_obj_set_style_bg_color(header, lv_color_hex(0x333333), 0);
+    lv_obj_t* title = lv_label_create(header);
+    lv_label_set_text(title, "Log Entries - Last 3 Days");
+    lv_obj_add_style(title, &style_title, 0);
+    lv_obj_center(title);
+
+    lv_obj_t* tabview = lv_tabview_create(logs_screen, LV_DIR_TOP, 30);
+    lv_obj_set_size(tabview, SCREEN_WIDTH, SCREEN_HEIGHT - 40);
+    lv_obj_align(tabview, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_set_style_bg_color(tabview, lv_color_hex(0x2D2D2D), 0);
+
+    // Get current time directly from RTC
+    m5::rtc_date_t currentDateStruct;
+    M5.Rtc.getDate(&currentDateStruct);
+    
+    // Create a time_t with the current date from RTC
+    struct tm currentTimeInfo = {0};
+    currentTimeInfo.tm_year = currentDateStruct.year - 1900; // tm_year is years since 1900
+    currentTimeInfo.tm_mon = currentDateStruct.month - 1;    // tm_mon is 0-based (0-11)
+    currentTimeInfo.tm_mday = currentDateStruct.date;        // Day of month from RTC
+    currentTimeInfo.tm_hour = 0;
+    currentTimeInfo.tm_min = 0;
+    currentTimeInfo.tm_sec = 0;
+    time_t now = mktime(&currentTimeInfo);
+    
+    char current_time[25]; // Increased size for new format
+    strftime(current_time, sizeof(current_time), "%d-%b-%Y %H:%M:%S", localtime(&now));
+    DEBUG_PRINTF("Current RTC date for log filtering: %s\n", current_time);
+
+    if (!fileSystemInitialized) {
+        DEBUG_PRINT("Filesystem not initialized, attempting to initialize");
+        initFileSystem();
+    }
+
+    if (fileSystemInitialized) {
+        SPI.end();
+        delay(100);
+        SPI_SD.begin(SD_SPI_SCK_PIN, SD_SPI_MISO_PIN, SD_SPI_MOSI_PIN, SD_SPI_CS_PIN);
+        digitalWrite(SD_SPI_CS_PIN, HIGH);
+        delay(100);
+
+        if (!SD.exists(LOG_FILENAME)) {
+            File file = SD.open(LOG_FILENAME, FILE_WRITE);
+            if (file) {
+                file.println("# Loss Prevention Log - Created " + getTimestamp());
+                file.close();
+                DEBUG_PRINT("Created new log file");
+            }
+        }
+
+        File log_file = SD.open(LOG_FILENAME, FILE_READ);
+        if (log_file) {
+            DEBUG_PRINT("Reading log file anew...");
+            while (log_file.available()) {
+                String line = log_file.readStringUntil('\n');
+                line.trim();
+                if (line.length() > 0 && !line.startsWith("#")) {
+                    time_t timestamp = parseTimestamp(line);
+                    if (timestamp != 0) {
+                        parsedLogEntries.push_back({line, timestamp});
+                        DEBUG_PRINTF("Parsed entry: %s\n", line.c_str());
+                    } else {
+                        DEBUG_PRINTF("Failed to parse timestamp: %s\n", line.c_str());
+                    }
+                }
+            }
+            log_file.close();
+            DEBUG_PRINTF("Read %d valid log entries from file\n", parsedLogEntries.size());
+        } else {
+            DEBUG_PRINT("Failed to open log file for reading");
+        }
+
+        SPI_SD.end();
+        SPI.begin();
+        pinMode(TFT_DC, OUTPUT);
+        digitalWrite(TFT_DC, HIGH);
+    }
+
+    char tab_names[3][16];
+    lv_obj_t* tabs[3];
+    std::vector<LogEntry*> entries_by_day[3];
+
+    for (int i = 0; i < 3; i++) {
+        struct tm day_time = *localtime(&now);
+        day_time.tm_mday -= i;
+        day_time.tm_hour = 0;
+        day_time.tm_min = 0;
+        day_time.tm_sec = 0;
+        mktime(&day_time);
+        strftime(tab_names[i], sizeof(tab_names[i]), "%m/%d/%y", &day_time);
+        tabs[i] = lv_tabview_add_tab(tabview, tab_names[i]);
+        time_t day_start = mktime(&day_time);
+        day_time.tm_hour = 23;
+        day_time.tm_min = 59;
+        day_time.tm_sec = 59;
+        mktime(&day_time);
+        time_t day_end = mktime(&day_time);
+        char day_start_str[25], day_end_str[25];
+        strftime(day_start_str, sizeof(day_start_str), "%d-%b-%Y %H:%M:%S", localtime(&day_start));
+        strftime(day_end_str, sizeof(day_end_str), "%d-%b-%Y %H:%M:%S", localtime(&day_end));
+        DEBUG_PRINTF("Filtering %s: %s to %s\n", tab_names[i], day_start_str, day_end_str);
+        for (auto& entry : parsedLogEntries) {
+            if (entry.timestamp >= day_start && entry.timestamp <= day_end) {
+                entries_by_day[i].push_back(&entry);
+                DEBUG_PRINTF("Matched entry for %s: %s\n", tab_names[i], entry.text.c_str());
+            }
+        }
+        std::sort(entries_by_day[i].begin(), entries_by_day[i].end(), 
+            [](const LogEntry* a, const LogEntry* b) {
+                return a->timestamp < b->timestamp;
+            });
+        DEBUG_PRINTF("Day %s: %d entries\n", tab_names[i], entries_by_day[i].size());
+    }
+
+    for (int i = 0; i < 3; i++) {
+        lv_obj_t* container = lv_obj_create(tabs[i]);
+        lv_obj_set_size(container, SCREEN_WIDTH - 20, SCREEN_HEIGHT - 70);
+        lv_obj_align(container, LV_ALIGN_TOP_MID, 0, 0);
+        lv_obj_set_style_bg_opa(container, LV_OPA_TRANSP, 0);
+        lv_obj_set_scroll_dir(container, LV_DIR_VER);
+        lv_obj_set_scrollbar_mode(container, LV_SCROLLBAR_MODE_AUTO);
+        lv_obj_add_flag(container, LV_OBJ_FLAG_SCROLLABLE);
+
+        if (entries_by_day[i].empty()) {
+            lv_obj_t* no_logs = lv_label_create(container);
+            lv_label_set_text(no_logs, "No entries for this day");
+            lv_obj_add_style(no_logs, &style_text, 0);
+            lv_obj_center(no_logs);
+        } else {
+            int y_pos = 0;
+            int entry_num = 1;
+            for (const auto* entry : entries_by_day[i]) {
+                lv_obj_t* entry_btn = lv_btn_create(container);
+                lv_obj_set_size(entry_btn, SCREEN_WIDTH - 30, 25);
+                lv_obj_set_pos(entry_btn, 5, y_pos);
+                lv_obj_add_style(entry_btn, &style_btn, 0);
+                lv_obj_add_style(entry_btn, &style_btn_pressed, LV_STATE_PRESSED);
+                lv_obj_set_style_bg_color(entry_btn, lv_color_hex(0x3A3A3A), 0);
+
+                struct tm* entry_time = localtime(&entry->timestamp);
+                char time_str[16];
+                strftime(time_str, sizeof(time_str), "%H:%M", entry_time);
+                String entry_label = "Entry " + String(entry_num++) + ": " + String(time_str);
+
+                lv_obj_t* label = lv_label_create(entry_btn);
+                lv_label_set_text(label, entry_label.c_str());
+                lv_obj_add_style(label, &style_text, 0);
+                lv_obj_align(label, LV_ALIGN_LEFT_MID, 5, 0);
+
+                lv_obj_set_user_data(entry_btn, (void*)entry);
+
+                lv_obj_add_event_cb(entry_btn, [](lv_event_t* e) {
+                    lv_obj_t* btn = lv_event_get_target(e);
+                    LogEntry* entry = (LogEntry*)lv_obj_get_user_data(btn);
+                    if (entry) {
+                        DEBUG_PRINTF("Raw entry text: %s\n", entry->text.c_str());
+                        int colon_pos = entry->text.indexOf(": ");
+                        if (colon_pos != -1) {
+                            String entry_data = entry->text.substring(colon_pos + 2); // Extract raw data after timestamp
+                            DEBUG_PRINTF("Extracted entry data: %s\n", entry_data.c_str());
+                            String formatted_entry = getFormattedEntry(entry_data);
+                            DEBUG_PRINTF("Formatted: %s\n", formatted_entry.c_str());
+                            lv_obj_t* msgbox = lv_msgbox_create(NULL, "Log Entry Details", 
+                                formatted_entry.c_str(), NULL, true);
+                            lv_obj_set_size(msgbox, 280, 180);
+                            lv_obj_center(msgbox);
+                            lv_obj_set_style_text_font(lv_msgbox_get_text(msgbox), &lv_font_montserrat_14, 0);
+                        } else {
+                            DEBUG_PRINT("No colon found in entry text");
+                            lv_obj_t* msgbox = lv_msgbox_create(NULL, "Error", 
+                                "Invalid log entry format", NULL, true);
+                            lv_obj_set_size(msgbox, 280, 180);
+                            lv_obj_center(msgbox);
+                        }
+                    }
+                }, LV_EVENT_CLICKED, NULL);
+
+                y_pos += 30;
+            }
+        }
+    }
+
+    lv_obj_t* back_btn = lv_btn_create(logs_screen);
+    lv_obj_set_size(back_btn, 80, 40);
+    lv_obj_align(back_btn, LV_ALIGN_TOP_LEFT, 10, 0);
+    lv_obj_add_style(back_btn, &style_btn, 0);
+    lv_obj_add_style(back_btn, &style_btn_pressed, LV_STATE_PRESSED);
+    lv_obj_t* back_label = lv_label_create(back_btn);
+    lv_label_set_text(back_label, LV_SYMBOL_LEFT " Back");
+    lv_obj_center(back_label);
+    lv_obj_move_foreground(back_btn);
+
+    lv_obj_add_event_cb(back_btn, [](lv_event_t* e) {
+        DEBUG_PRINT("Returning to main menu from logs");
+        createMainMenu();
+    }, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t* reset_btn = lv_btn_create(logs_screen);
+    lv_obj_set_size(reset_btn, 80, 40);
+    lv_obj_align(reset_btn, LV_ALIGN_TOP_RIGHT, -10, 0);
+    lv_obj_add_style(reset_btn, &style_btn, 0);
+    lv_obj_add_style(reset_btn, &style_btn_pressed, LV_STATE_PRESSED);
+    lv_obj_t* reset_label = lv_label_create(reset_btn);
+    lv_label_set_text(reset_label, "Reset");
+    lv_obj_center(reset_label);
+    lv_obj_move_foreground(reset_btn);
+
+    lv_obj_add_event_cb(reset_btn, [](lv_event_t* e) {
+        static const char* btns[] = {"Yes", "No", ""};
+        lv_obj_t* msgbox = lv_msgbox_create(NULL, "Confirm Reset", 
+            "Are you sure you want to delete all log entries?", btns, false);
+        lv_obj_set_size(msgbox, 250, 150);
+        lv_obj_center(msgbox);
+
+        lv_obj_add_event_cb(msgbox, [](lv_event_t* e) {
+            lv_obj_t* obj = lv_event_get_current_target(e);
+            const char* btn_text = lv_msgbox_get_active_btn_text(obj);
+            if (btn_text && strcmp(btn_text, "Yes") == 0) {
+                SPI.end();
+                delay(100);
+                SPI_SD.begin(SD_SPI_SCK_PIN, SD_SPI_MISO_PIN, SD_SPI_MOSI_PIN, SD_SPI_CS_PIN);
+                digitalWrite(SD_SPI_CS_PIN, HIGH);
+                delay(100);
+
+                if (SD.remove(LOG_FILENAME)) {
+                    File file = SD.open(LOG_FILENAME, FILE_WRITE);
+                    if (file) {
+                        file.println("# Loss Prevention Log - Reset " + getTimestamp());
+                        file.close();
+                        DEBUG_PRINT("Log file reset successfully");
+                    }
+                } else {
+                    DEBUG_PRINT("Failed to reset log file");
+                }
+
+                SPI_SD.end();
+                SPI.begin();
+                pinMode(TFT_DC, OUTPUT);
+                digitalWrite(TFT_DC, HIGH);
+
+                parsedLogEntries.clear();
+                lv_obj_t* screen_to_delete = lv_scr_act();
+                createViewLogsScreen();
+                if (screen_to_delete && screen_to_delete != lv_scr_act()) {
+                    lv_obj_del(screen_to_delete);
+                }
+            }
+            lv_msgbox_close(obj);
+        }, LV_EVENT_VALUE_CHANGED, NULL);
+    }, LV_EVENT_CLICKED, NULL);
+
+    lv_scr_load(logs_screen);
+    lv_timer_handler();
+    DEBUG_PRINT("View logs screen created successfully");
+}
+
 // Function to release SPI bus
 void releaseSPIBus() {
     SPI.end();
@@ -388,97 +790,138 @@ void releaseSPIBus() {
 
 // SPI-safe file system initialization
 void initFileSystem() {
-    if (fileSystemInitialized) return;
+    if (fileSystemInitialized) {
+        DEBUG_PRINT("File system already initialized");
+        return;
+    }
+    
     DEBUG_PRINT("Initializing SD card...");
     
-    WiFi.disconnect(); // Ensure WiFi is off during SPI switch
+    // Stop the default SPI (used by LCD)
     SPI.end();
-    delay(200);
-    SPI_SD.begin(SD_SPI_SCK_PIN, SD_SPI_MISO_PIN, SD_SPI_MOSI_PIN, -1);
-    pinMode(SD_SPI_CS_PIN, OUTPUT);
-    digitalWrite(SD_SPI_CS_PIN, HIGH);
-    delay(200);
-
+    delay(200); // Give it a moment to settle
+    
+    // Start custom SPI for SD card
+    SPI_SD.begin(SD_SPI_SCK_PIN, SD_SPI_MISO_PIN, SD_SPI_MOSI_PIN, -1); // -1 means no default CS
+    pinMode(SD_SPI_CS_PIN, OUTPUT); // Set CS pin (4) as OUTPUT
+    digitalWrite(SD_SPI_CS_PIN, HIGH); // Deselect SD card (HIGH = off)
+    delay(200); // Wait for SD card to stabilize
+    
     bool sdInitialized = false;
+    
+    // Try initializing the SD card up to 3 times
     for (int i = 0; i < 3 && !sdInitialized; i++) {
-        sdInitialized = SD.begin(SD_SPI_CS_PIN, SPI_SD, 2000000);
-        if (!sdInitialized) delay(100);
+        DEBUG_PRINTF("Attempt %d: Initializing SD at 2 MHz...\n", i + 1);
+        sdInitialized = SD.begin(SD_SPI_CS_PIN, SPI_SD, 2000000); // CS=4, custom SPI, 2 MHz
+        if (!sdInitialized) {
+            DEBUG_PRINTF("Attempt %d failed\n", i + 1);
+            delay(100); // Short delay before retrying
+        }
     }
-
+    
     if (!sdInitialized) {
-        DEBUG_PRINT("SD card initialization failed");
+        DEBUG_PRINT("All SD card initialization attempts failed");
+        // Show error message on screen
         lv_obj_t* msgbox = lv_msgbox_create(NULL, "Storage Error", 
-            "SD card initialization failed.", NULL, true);
+            "SD card initialization failed. Please check the card.", NULL, true);
+        lv_obj_set_size(msgbox, 280, 150);
         lv_obj_center(msgbox);
-    } else {
-        fileSystemInitialized = true;
-        DEBUG_PRINT("SD card initialized successfully");
+        
+        // Clean up and switch back to LCD mode
+        SPI_SD.end();
+        SPI.begin();
+        pinMode(TFT_DC, OUTPUT);
+        digitalWrite(TFT_DC, HIGH);
+        return;
     }
-
+    
+    DEBUG_PRINT("SD card initialized successfully");
+    fileSystemInitialized = true;
+    
+    // Check card type and print info
+    uint8_t cardType = SD.cardType();
+    if (cardType == CARD_NONE) {
+        DEBUG_PRINT("No SD card attached");
+    } else {
+        DEBUG_PRINT("SD Card Type: ");
+        if (cardType == CARD_MMC) {
+            DEBUG_PRINT("MMC");
+        } else if (cardType == CARD_SD) {
+            DEBUG_PRINT("SDSC");
+        } else if (cardType == CARD_SDHC) {
+            DEBUG_PRINT("SDHC");
+        } else {
+            DEBUG_PRINT("UNKNOWN");
+        }
+        
+        uint64_t cardSize = SD.cardSize() / (1024 * 1024);
+        DEBUG_PRINTF("SD Card Size: %lluMB\n", cardSize);
+    }
+    
+    // Switch back to LCD mode after initialization
     SPI_SD.end();
     SPI.begin();
     pinMode(TFT_DC, OUTPUT);
     digitalWrite(TFT_DC, HIGH);
-    if (wifiManager.isEnabled()) wifiManager.connectToBestNetwork(); // Restore WiFi
 }
 
+// Simplified setup function
 void setup() {
     Serial.begin(115200);
-    while (!Serial) delay(10);
-    Serial.println("Serial initialized");
     DEBUG_PRINT("Starting Loss Prevention Log...");
 
     auto cfg = M5.config();
-    Serial.println("Before M5.begin");
     M5.begin(cfg);
     M5.Power.begin();
 
-    // Enable external bus power (PORT A/B/C via BUS_EN)
+    // Enable external bus power (unchanged)
     M5.Power.setExtOutput(true);
     Serial.println("External bus power enabled: " + String(M5.Power.getExtOutput() ? "Yes" : "No"));
 
-    // Since setVoltage() and AXP2101_ALDO3 aren't available, use direct register writes for ALDO3 (3.3V)
-    // ALDO3 is controlled by register 0x94 (voltage) and 0x90 (enable bit 3)
-    M5.Power.Axp2101.writeRegister8(0x94, 28); // Set ALDO3 to 3.3V (28 = 3.3V based on init logic: 0.5V + 28 * 0.1V)
+    // Configure ALDO3 to 3.3V (unchanged)
+    M5.Power.Axp2101.writeRegister8(0x94, 28); // Set ALDO3 to 3.3V
     uint8_t reg90 = M5.Power.Axp2101.readRegister8(0x90);
-    M5.Power.Axp2101.writeRegister8(0x90, reg90 | 0x08); // Enable ALDO3 (bit 3)
+    M5.Power.Axp2101.writeRegister8(0x90, reg90 | 0x08); // Enable ALDO3
     Serial.printf("ALDO3 configured to 3.3V\n");
 
-    // Check AW9523 PORT0 (BUS_EN)
+    // Check AW9523 PORT0/PORT1 (unchanged)
     uint8_t port0_val = M5.In_I2C.readRegister8(0x58, 0x02, 100000);
     Serial.printf("AW9523 PORT0: 0x%02X (BUS_EN: %d)\n", port0_val, (port0_val & 0x02) >> 1);
-
-    // Check AW9523 PORT1 (BOOST_EN for 5V)
     uint8_t port1_val = M5.In_I2C.readRegister8(0x58, 0x03, 100000);
     Serial.printf("AW9523 PORT1: 0x%02X (BOOST_EN: %d)\n", port1_val, (port1_val & 0x80) >> 7);
 
-    // Monitor battery and VBUS for context
-    Serial.printf("Battery Voltage: %d mV\n", M5.Power.getBatteryVoltage());
-    Serial.printf("VBUS Voltage: %d mV\n", M5.Power.getVBUSVoltage());
+    // Monitor battery and VBUS (unchanged)
+    DEBUG_PRINTF("Battery Voltage: %d mV\n", M5.Power.getBatteryVoltage());
+    DEBUG_PRINTF("VBUS Voltage: %d mV\n", M5.Power.getVBUSVoltage());
 
-    // Initialize speaker
+    // Initialize speaker (unchanged)
     M5.Speaker.begin();
     DEBUG_PRINT("Speaker initialized");
 
-    // Load persistent sound settings
+    // Load persistent sound settings (unchanged)
     Preferences prefs;
-    prefs.begin("settings", false); // Open "settings" namespace in read/write mode
-    uint8_t saved_volume = prefs.getUChar("volume", 128); // Default to 128 if not set
-    bool sound_enabled = prefs.getBool("sound_enabled", true); // Default to true
-    M5.Speaker.setVolume(sound_enabled ? saved_volume : 0); // Apply volume or mute
+    prefs.begin("settings", false);
+    uint8_t saved_volume = prefs.getUChar("volume", 128);
+    bool sound_enabled = prefs.getBool("sound_enabled", true);
+    M5.Speaker.setVolume(sound_enabled ? saved_volume : 0);
     DEBUG_PRINTF("Loaded sound settings - Enabled: %d, Volume: %d\n", sound_enabled, saved_volume);
-    
-    // Load persistent brightness settings
+
+    // Load persistent brightness settings (unchanged)
+    uint8_t displayBrightness = prefs.getUChar("brightness", 128);
     M5.Display.setBrightness(displayBrightness);
     DEBUG_PRINTF("Loaded Brightness settings - Brightness: %d\n", displayBrightness);
     prefs.end();
 
-    Serial.println("Before lv_init");
+    // Initialize LVGL (unchanged)
+    DEBUG_PRINT("Before lv_init");
     lv_init();
-    Serial.println("After lv_init");
+    DEBUG_PRINT("After lv_init");
 
-    lv_disp_draw_buf_init(&draw_buf, buf1, NULL, SCREEN_WIDTH * 5);
-    Serial.println("Display buffer initialized");
+    // Initialize LVGL buffer (unchanged)
+    static lv_color_t *buf1 = (lv_color_t *)heap_caps_malloc(SCREEN_WIDTH * 40 * sizeof(lv_color_t), MALLOC_CAP_SPIRAM);
+    static lv_color_t *buf2 = (lv_color_t *)heap_caps_malloc(SCREEN_WIDTH * 40 * sizeof(lv_color_t), MALLOC_CAP_SPIRAM);
+    lv_disp_draw_buf_init(&draw_buf, buf1, buf2, SCREEN_WIDTH * 40);
+    DEBUG_PRINT("Display buffer initialized");
 
     lv_disp_drv_init(&disp_drv);
     disp_drv.hor_res = M5.Display.width();
@@ -486,127 +929,112 @@ void setup() {
     disp_drv.flush_cb = my_disp_flush;
     disp_drv.draw_buf = &draw_buf;
     lv_disp_drv_register(&disp_drv);
-    Serial.println("Display driver registered");
+    DEBUG_PRINT("Display driver registered");
 
     lv_indev_drv_init(&indev_drv);
     indev_drv.type = LV_INDEV_TYPE_POINTER;
     indev_drv.read_cb = my_touchpad_read;
     lv_indev_drv_register(&indev_drv);
-    Serial.println("Input driver registered");
+    DEBUG_PRINT("Input driver registered");
 
+    // Create semaphore for LVGL thread safety (unchanged)
+    xGuiSemaphore = xSemaphoreCreateMutex();
+
+    // Set initial RTC time if unset
     m5::rtc_date_t DateStruct;
-    m5::rtc_time_t TimeStruct;
-    Serial.println("Before RTC getDate");
     M5.Rtc.getDate(&DateStruct);
-    Serial.println("After RTC getDate");
     if (DateStruct.year < 2020) {
-        int day, month, year, hour, minute, second;
-        char monthStr[4];
-        sscanf(__DATE__, "%3s %2d %4d", monthStr, &day, &year);
-        sscanf(__TIME__, "%2d:%2d:%2d", &hour, &minute, &second);
-
-        static const char* months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                                       "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
-        for (int i = 0; i < 12; i++) {
-            if (strncmp(monthStr, months[i], 3) == 0) {
-                month = i + 1;
-                break;
-            }
-        }
-
-        rtc.setTime(second, minute, hour, day, month, year);
-        int y = year, m = month, d = day;
-        if (m < 3) { m += 12; y--; }
-        int k = d, M = m, D = y % 100, C = y / 100;
-        int f = k + ((13 * (M + 1)) / 5) + D + (D / 4) + (C / 4) - (2 * C);
-        int weekDay = (f % 7 + 7) % 7;
-
-        TimeStruct.hours = hour;
-        TimeStruct.minutes = minute;
-        TimeStruct.seconds = second;
-        M5.Rtc.setTime(&TimeStruct);
-        DateStruct.year = year;
-        DateStruct.month = month;
-        DateStruct.date = day;
-        DateStruct.weekDay = weekDay;
+        // Set default date/time if RTC is unset
+        DateStruct.year = 2025;
+        DateStruct.month = 3;
+        DateStruct.date = 15; // Today's date based on March 15, 2025
+        DateStruct.weekDay = 5; // Thursday (simplified, not critical)
         M5.Rtc.setDate(&DateStruct);
 
-        DEBUG_PRINTF("RTC set to compile time: %04d-%02d-%02d %02d:%02d:%02d, Weekday: %d\n",
-                     year, month, day, hour, minute, second, weekDay);
+        m5::rtc_time_t TimeStruct;
+        TimeStruct.hours = 12;
+        TimeStruct.minutes = 0;
+        TimeStruct.seconds = 0;
+        M5.Rtc.setTime(&TimeStruct);
+        DEBUG_PRINT("RTC set to default: 2025-03-13 12:00:00");
     }
     setSystemTimeFromRTC();
-    Serial.println("System time set");
-    
-    DEBUG_PRINTF("Battery Voltage: %f V\n", M5.Power.getBatteryVoltage() / 1000.0); // Adjusted to volts
-    DEBUG_PRINTF("Is Charging: %d\n", M5.Power.isCharging());
-    DEBUG_PRINTF("Battery Level: %d%%\n", M5.Power.getBatteryLevel());
-    
-    // Initialize WiFi Manager
+
+    // Initialize WiFi Manager (unchanged)
     wifiManager.begin();
     wifiManager.setStatusCallback(onWiFiStatus);
     wifiManager.setScanCallback(onWiFiScanComplete);
     loadSavedNetworks();
     DEBUG_PRINT("WiFi Manager initialized");
 
+    // Initialize file system after display is set up
+    initFileSystem();
+
     initStyles();
     createMainMenu();
-    lastLvglTick = millis();
-
-    DEBUG_PRINTF("Free heap after setup: %d bytes\n", ESP.getFreeHeap());
-
-    if (wifiManager.isConnected()) syncTimeWithNTP();
     DEBUG_PRINT("Setup complete!");
 }
+
+// Simplified loop function
 void loop() {
-    M5.update();  // Update M5CoreS3 hardware state (touch, buttons, etc.)
+    M5.update();
     uint32_t currentMillis = millis();
+    lv_timer_handler();
 
-    // Handle LVGL timing (10ms tick period from your code)
-    if (currentMillis - lastLvglTick > screenTickPeriod) {
-        lv_timer_handler();  // Process LVGL events and updates
-        lastLvglTick = currentMillis;
-    }
-    
-    // Update indicators periodically (every 5 seconds)
-    static unsigned long lastIndicatorUpdate = 0;
-    if (currentMillis - lastIndicatorUpdate > 5000) {
-        updateWifiIndicator();
-        updateBatteryIndicator();
-        lastIndicatorUpdate = currentMillis;
+    // Update time display every second
+    static unsigned long lastTimeUpdate = 0;
+    if (millis() - lastTimeUpdate > 1000) {
+        updateTimeDisplay();
+        lastTimeUpdate = millis();
     }
 
-    // WiFi scan timeout check - will be handled by WiFiManager in the future
-    if (wifiScanInProgress && (currentMillis - lastScanStartTime > SCAN_TIMEOUT)) {
-        DEBUG_PRINT("WiFi scan timeout detected");
-        wifiScanInProgress = false;
-        if (wifi_status_label && lv_scr_act() == wifi_screen) {
-            lv_label_set_text(wifi_status_label, "Scan timed out. Try again.");
+    // Handle LVGL timing (unchanged)
+    static uint32_t lastLvglTick = 0;
+    if (currentMillis - lastLvglTick > 10) { // screenTickPeriod set to 10ms
+        if (xSemaphoreTake(xGuiSemaphore, (TickType_t)10) == pdTRUE) {
+            lv_task_handler();
+            xSemaphoreGive(xGuiSemaphore);
+            lastLvglTick = currentMillis;
         }
     }
 
-    // Reset connection attempts when connected - will be handled by WiFiManager in the future
-    if (WiFi.status() == WL_CONNECTED && wifiConnectionAttempts > 0) {
-        wifiConnectionAttempts = 0;
-        manualDisconnect = false;
-        DEBUG_PRINT("WiFi connected successfully");
-        
-        static bool timeSynced = false;
-        if (!timeSynced) {
-            syncTimeWithNTP();
-            timeSynced = true;
+    wifiManager.update(); // Process WiFi events (unchanged)
+
+    // Battery and WiFi updates (unchanged)
+    static unsigned long lastUpdate = 0;
+    if (currentMillis - lastUpdate > 1000) {
+        if (xSemaphoreTake(xGuiSemaphore, (TickType_t)10) == pdTRUE) {
+            if (lv_scr_act() == main_menu_screen) {
+                int battery_level = M5.Power.getBatteryLevel();
+                const char* battery_symbol = (battery_level > 75) ? LV_SYMBOL_BATTERY_FULL :
+                                             (battery_level > 50) ? LV_SYMBOL_BATTERY_3 :
+                                             (battery_level > 25) ? LV_SYMBOL_BATTERY_2 :
+                                             (battery_level > 10) ? LV_SYMBOL_BATTERY_1 : LV_SYMBOL_BATTERY_EMPTY;
+                if (battery_icon) lv_label_set_text(battery_icon, battery_symbol);
+                if (battery_label) {
+                    char battery_text[5];
+                    snprintf(battery_text, sizeof(battery_text), "%d%%", battery_level);
+                    lv_label_set_text(battery_label, battery_text);
+                }
+
+                if (wifi_label) {
+                    int rssi = WiFi.RSSI();
+                    int wifi_strength = map(rssi, -100, -50, 0, 100);
+                    wifi_strength = constrain(wifi_strength, 0, 100);
+                    char wifi_text[5];
+                    snprintf(wifi_text, sizeof(wifi_text), "%d%%", wifi_strength);
+                    lv_label_set_text(wifi_label, wifi_text);
+                }
+            }
+            xSemaphoreGive(xGuiSemaphore);
         }
+        lastUpdate = currentMillis;
     }
 
-    // Periodic NTP sync (every hour)
-    static unsigned long lastTimeSync = 0;
-    if (wifiManager.isConnected() && currentMillis - lastTimeSync > 3600000) {
-        syncTimeWithNTP();
-        lastTimeSync = currentMillis;
-    }
-
-    delay(5);  // Small delay for stability, matching your original
+    delay(5); // Small delay for stability (unchanged)
 }
 
+// Display flush function
 void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p) {
     uint32_t w = (area->x2 - area->x1 + 1);
     uint32_t h = (area->y2 - area->y1 + 1);
@@ -617,21 +1045,33 @@ void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color
     lv_disp_flush_ready(disp);
 }
 
+// Touchpad read function
 void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data) {
-    m5::touch_detail_t t = M5.Touch.getDetail();
-    if (t.state == m5::touch_state_t::touch) {
-        data->state = LV_INDEV_STATE_PR;
-        data->point.x = t.x;
-        data->point.y = t.y;
+    lgfx::touch_point_t tp[1];
+    static bool was_touching = false;
+    static int16_t touch_start_x = 0;
+    static int16_t touch_start_y = 0;
+    static int16_t touch_last_x = 0;
+    static int16_t touch_last_y = 0;
+    static unsigned long touch_start_time = 0;
 
+    M5.update();
+    
+    // Get touch points using the CoreS3 User Demo approach
+    int nums = M5.Display.getTouchRaw(tp, 1);
+    if (nums) {
+        data->state = LV_INDEV_STATE_PR;
+        data->point.x = tp[0].x;
+        data->point.y = tp[0].y;
+        
         if (!was_touching) {
-            touch_start_x = t.x;
-            touch_start_y = t.y;
+            touch_start_x = tp[0].x;
+            touch_start_y = tp[0].y;
             touch_start_time = millis();
             was_touching = true;
         }
-        touch_last_x = t.x;
-        touch_last_y = t.y;
+        touch_last_x = tp[0].x;
+        touch_last_y = tp[0].y;
     } else if (was_touching) {
         data->state = LV_INDEV_STATE_REL;
         was_touching = false;
@@ -654,6 +1094,7 @@ void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data) {
     }
 }
 
+// Swipe left function
 void handleSwipeLeft() {
     lv_obj_t* current_screen = lv_scr_act();
     
@@ -697,6 +1138,7 @@ void handleSwipeLeft() {
     }
 }
 
+// Swipe vertical function
 void handleSwipeVertical(int amount) {
     if (current_scroll_obj && lv_obj_is_valid(current_scroll_obj)) {
         lv_obj_scroll_by(current_scroll_obj, 0, amount, LV_ANIM_ON);
@@ -707,6 +1149,7 @@ void handleSwipeVertical(int amount) {
     }
 }
 
+// Add status bar function
 void addStatusBar(lv_obj_t* screen) {
     if (status_bar) lv_obj_del(status_bar);
     status_bar = lv_label_create(screen);
@@ -716,890 +1159,900 @@ void addStatusBar(lv_obj_t* screen) {
     lv_label_set_text(status_bar, "Ready");
 }
 
+// Create main menu function
 void createMainMenu() {
+    DEBUG_PRINTF("Free heap before main menu: %d bytes\n", heap_caps_get_free_size(MALLOC_CAP_8BIT));
+    
+    // Ensure SPI bus is set for display
+    releaseSPIBus();
+    SPI.begin();
+    pinMode(TFT_DC, OUTPUT);
+    digitalWrite(TFT_DC, HIGH);
+
+    // Clean up existing main menu screen if it exists
     if (main_menu_screen) {
+        lv_obj_clean(main_menu_screen); // Remove all child objects
         lv_obj_del(main_menu_screen);
         main_menu_screen = nullptr;
     }
     main_menu_screen = lv_obj_create(NULL);
     lv_obj_add_style(main_menu_screen, &style_screen, 0);
 
+    // Reset global pointers to avoid dangling references
+    current_scroll_obj = nullptr;
+    status_bar = nullptr;
+    battery_icon = nullptr;
+    battery_label = nullptr;
+    wifi_label = nullptr;
+    time_label = nullptr;
+
+    // Header
     lv_obj_t* header = lv_obj_create(main_menu_screen);
-    lv_obj_set_size(header, SCREEN_WIDTH, 50);
-    lv_obj_set_style_bg_color(header, lv_color_hex(0x333333), 0);
+    lv_obj_set_size(header, SCREEN_WIDTH, 40);
+    lv_obj_set_style_bg_color(header, lv_color_hex(0x2D2D2D), 0);
+    lv_obj_set_style_bg_opa(header, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(header, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_t* title = lv_label_create(header);
-    lv_label_set_text(title, "Loss Prevention Logger");
+    lv_label_set_text(title, "Loss Prevention");
     lv_obj_add_style(title, &style_title, 0);
     lv_obj_align(title, LV_ALIGN_CENTER, 0, 0);
 
-    addWifiIndicator(main_menu_screen);
-    addBatteryIndicator(main_menu_screen);
+    // Scrollable card grid (2x3, vertical scrolling)
+    lv_obj_t* grid = lv_obj_create(main_menu_screen);
+    lv_obj_set_size(grid, SCREEN_WIDTH - 20, SCREEN_HEIGHT - 50);
+    lv_obj_align(grid, LV_ALIGN_TOP_MID, 0, 50);
+    lv_obj_set_style_bg_opa(grid, LV_OPA_TRANSP, 0);
+    lv_obj_set_layout(grid, LV_LAYOUT_GRID);
+    static lv_coord_t col_dsc[] = {140, 140, LV_GRID_TEMPLATE_LAST}; // 2 columns
+    static lv_coord_t row_dsc[] = {80, 80, 80, LV_GRID_TEMPLATE_LAST}; // 3 rows
+    lv_obj_set_grid_dsc_array(grid, col_dsc, row_dsc);
+    lv_obj_set_style_pad_column(grid, 10, 0);
+    lv_obj_set_style_pad_row(grid, 10, 0);
+    lv_obj_set_content_width(grid, 300);
+    // Scroll improvements
+    lv_obj_add_flag(grid, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scroll_dir(grid, LV_DIR_VER);  // Vertical scrolling
+    lv_obj_set_scrollbar_mode(grid, LV_SCROLLBAR_MODE_ACTIVE);
+    lv_obj_set_scroll_snap_y(grid, LV_SCROLL_SNAP_NONE);  // Disable snap scrolling
+    lv_obj_add_flag(grid, LV_OBJ_FLAG_SCROLL_MOMENTUM);  // Add momentum
+    current_scroll_obj = grid;
 
-    lv_obj_t* menu_cont = lv_obj_create(main_menu_screen);
-    lv_obj_set_size(menu_cont, SCREEN_WIDTH - 20, SCREEN_HEIGHT - 70);
-    lv_obj_align(menu_cont, LV_ALIGN_TOP_MID, 0, 60);
-    lv_obj_set_style_bg_color(menu_cont, lv_color_hex(0x2D2D2D), 0);
-    lv_obj_set_layout(menu_cont, LV_LAYOUT_GRID);
-    static lv_coord_t col_dsc[] = {LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST};
-    static lv_coord_t row_dsc[] = {LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST};
-    lv_obj_set_grid_dsc_array(menu_cont, col_dsc, row_dsc);
-
-    // Button 1: New Entry
-    lv_obj_t* new_entry_btn = lv_btn_create(menu_cont);
-    lv_obj_add_style(new_entry_btn, &style_btn, 0);
-    lv_obj_add_style(new_entry_btn, &style_btn_pressed, LV_STATE_PRESSED);
-    lv_obj_set_grid_cell(new_entry_btn, LV_GRID_ALIGN_STRETCH, 0, 1, LV_GRID_ALIGN_STRETCH, 0, 1);
-    lv_obj_t* new_entry_label = lv_label_create(new_entry_btn);
-    lv_label_set_text(new_entry_label, "New Entry");
-    lv_obj_center(new_entry_label);
-    lv_obj_add_event_cb(new_entry_btn, [](lv_event_t* e) {
-        DEBUG_PRINT("New Entry clicked");
-        createGenderMenu(); // Navigate to gender selection screen
+    // Card 1: New Entry (Row 0, Col 0)
+    lv_obj_t* new_card = lv_obj_create(grid);
+    lv_obj_set_grid_cell(new_card, LV_GRID_ALIGN_STRETCH, 0, 1, LV_GRID_ALIGN_STRETCH, 0, 1);
+    lv_obj_add_style(new_card, &style_card_action, 0);
+    lv_obj_add_style(new_card, &style_card_pressed, LV_STATE_PRESSED);
+    lv_obj_t* new_icon = lv_label_create(new_card);
+    lv_label_set_text(new_icon, LV_SYMBOL_PLUS);
+    lv_obj_set_style_text_font(new_icon, &lv_font_montserrat_20, 0);
+    lv_obj_align(new_icon, LV_ALIGN_TOP_MID, 0, 8);
+    lv_obj_t* new_label = lv_label_create(new_card);
+    lv_label_set_text(new_label, "New Entry");
+    lv_obj_align(new_label, LV_ALIGN_BOTTOM_MID, 0, -8);
+    lv_obj_add_event_cb(new_card, [](lv_event_t* e) {
+        createGenderMenu(); 
     }, LV_EVENT_CLICKED, NULL);
 
-    // Button 2: View Logs
-    lv_obj_t* view_logs_btn = lv_btn_create(menu_cont);
-    lv_obj_add_style(view_logs_btn, &style_btn, 0);
-    lv_obj_add_style(view_logs_btn, &style_btn_pressed, LV_STATE_PRESSED);
-    lv_obj_set_grid_cell(view_logs_btn, LV_GRID_ALIGN_STRETCH, 1, 1, LV_GRID_ALIGN_STRETCH, 0, 1);
-    lv_obj_t* view_logs_label = lv_label_create(view_logs_btn);
-    lv_label_set_text(view_logs_label, "View Logs");
-    lv_obj_center(view_logs_label);
-    lv_obj_add_event_cb(view_logs_btn, [](lv_event_t* e) {
-        DEBUG_PRINT("View Logs clicked");
-        createViewLogsScreen(); // Navigate to log viewing screen
+    // Card 2: Logs (Row 0, Col 1)
+    lv_obj_t* logs_card = lv_obj_create(grid);
+    lv_obj_set_grid_cell(logs_card, LV_GRID_ALIGN_STRETCH, 1, 1, LV_GRID_ALIGN_STRETCH, 0, 1);
+    lv_obj_add_style(logs_card, &style_card_action, 0);
+    lv_obj_add_style(logs_card, &style_card_pressed, LV_STATE_PRESSED);
+    lv_obj_t* logs_icon = lv_label_create(logs_card);
+    lv_label_set_text(logs_icon, LV_SYMBOL_LIST); // List icon
+    lv_obj_set_style_text_font(logs_icon, &lv_font_montserrat_20, 0);
+    lv_obj_align(logs_icon, LV_ALIGN_TOP_MID, 0, 8);
+    lv_obj_t* logs_label = lv_label_create(logs_card);
+    lv_label_set_text(logs_label, "Logs");
+    lv_obj_align(logs_label, LV_ALIGN_BOTTOM_MID, 0, -8);
+    lv_obj_add_event_cb(logs_card, [](lv_event_t* e) {
+        createViewLogsScreen();
     }, LV_EVENT_CLICKED, NULL);
 
-    // Button 3: Settings (already functional)
-    lv_obj_t* settings_btn = lv_btn_create(menu_cont);
-    lv_obj_add_style(settings_btn, &style_btn, 0);
-    lv_obj_add_style(settings_btn, &style_btn_pressed, LV_STATE_PRESSED);
-    lv_obj_set_grid_cell(settings_btn, LV_GRID_ALIGN_STRETCH, 2, 1, LV_GRID_ALIGN_STRETCH, 0, 1);
-    lv_obj_t* settings_label = lv_label_create(settings_btn);
+    // Card 3: Settings (Row 1, Col 0)
+    lv_obj_t* settings_card = lv_obj_create(grid);
+    lv_obj_set_grid_cell(settings_card, LV_GRID_ALIGN_STRETCH, 0, 1, LV_GRID_ALIGN_STRETCH, 1, 1);
+    lv_obj_add_style(settings_card, &style_card_action, 0);
+    lv_obj_add_style(settings_card, &style_card_pressed, LV_STATE_PRESSED);
+    lv_obj_t* settings_icon = lv_label_create(settings_card);
+    lv_label_set_text(settings_icon, LV_SYMBOL_SETTINGS);
+    lv_obj_set_style_text_font(settings_icon, &lv_font_montserrat_20, 0);
+    lv_obj_align(settings_icon, LV_ALIGN_TOP_MID, 0, 8);
+    lv_obj_t* settings_label = lv_label_create(settings_card);
     lv_label_set_text(settings_label, "Settings");
-    lv_obj_center(settings_label);
-    lv_obj_add_event_cb(settings_btn, [](lv_event_t* e) {
+    lv_obj_align(settings_label, LV_ALIGN_BOTTOM_MID, 0, -8);
+    lv_obj_add_event_cb(settings_card, [](lv_event_t* e) {
         createSettingsScreen();
     }, LV_EVENT_CLICKED, NULL);
 
-    // Button 4: Placeholder 1
-    lv_obj_t* ph1_btn = lv_btn_create(menu_cont);
-    lv_obj_add_style(ph1_btn, &style_btn, 0);
-    lv_obj_add_style(ph1_btn, &style_btn_pressed, LV_STATE_PRESSED);
-    lv_obj_set_grid_cell(ph1_btn, LV_GRID_ALIGN_STRETCH, 0, 1, LV_GRID_ALIGN_STRETCH, 1, 1);
-    lv_obj_t* ph1_label = lv_label_create(ph1_btn);
-    lv_label_set_text(ph1_label, "Placeholder");
-    lv_obj_center(ph1_label);
-    lv_obj_add_event_cb(ph1_btn, [](lv_event_t* e) {
-        DEBUG_PRINT("Placeholder 1 clicked");
+    // Card 4: Battery (Row 1, Col 1)
+    lv_obj_t* battery_card = lv_obj_create(grid);
+    lv_obj_set_grid_cell(battery_card, LV_GRID_ALIGN_STRETCH, 1, 1, LV_GRID_ALIGN_STRETCH, 1, 1);
+    lv_obj_add_style(battery_card, &style_card_info, 0);
+    battery_icon = lv_label_create(battery_card);
+    int battery_level = M5.Power.getBatteryLevel();
+    const char* battery_symbol = (battery_level > 75) ? LV_SYMBOL_BATTERY_FULL :
+                                 (battery_level > 50) ? LV_SYMBOL_BATTERY_3 :
+                                 (battery_level > 25) ? LV_SYMBOL_BATTERY_2 :
+                                 (battery_level > 10) ? LV_SYMBOL_BATTERY_1 : LV_SYMBOL_BATTERY_EMPTY;
+    lv_label_set_text(battery_icon, battery_symbol);
+    lv_obj_set_style_text_font(battery_icon, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(battery_icon, lv_color_hex(0x4A90E2), 0);
+    lv_obj_align(battery_icon, LV_ALIGN_CENTER, -20, 0);
+    battery_label = lv_label_create(battery_card);
+    char battery_text[5];
+    snprintf(battery_text, sizeof(battery_text), "%d%%", battery_level);
+    lv_label_set_text(battery_label, battery_text);
+    lv_obj_set_style_text_font(battery_label, &lv_font_montserrat_16, 0);
+    lv_obj_align(battery_label, LV_ALIGN_CENTER, 20, 0);
+
+    // Card 5: WiFi (Row 2, Col 0)
+    lv_obj_t* wifi_card = lv_obj_create(grid);
+    lv_obj_set_grid_cell(wifi_card, LV_GRID_ALIGN_STRETCH, 0, 1, LV_GRID_ALIGN_STRETCH, 2, 1);
+    lv_obj_add_style(wifi_card, &style_card_info, 0);
+    lv_obj_t* wifi_icon = lv_label_create(wifi_card);
+    lv_label_set_text(wifi_icon, LV_SYMBOL_WIFI);
+    lv_obj_set_style_text_font(wifi_icon, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(wifi_icon, lv_color_hex(0x4A90E2), 0);
+    lv_obj_align(wifi_icon, LV_ALIGN_CENTER, -20, 0);
+    wifi_label = lv_label_create(wifi_card);
+    int rssi = WiFi.RSSI();
+    int wifi_strength = map(rssi, -100, -50, 0, 100);
+    wifi_strength = constrain(wifi_strength, 0, 100);
+    char wifi_text[5];
+    snprintf(wifi_text, sizeof(wifi_text), "%d%%", wifi_strength);
+    lv_label_set_text(wifi_label, wifi_text);
+    lv_obj_set_style_text_font(wifi_label, &lv_font_montserrat_16, 0);
+    lv_obj_align(wifi_label, LV_ALIGN_CENTER, 20, 0);
+
+    // Card 6: Power Management (Row 2, Col 1)
+    lv_obj_t* power_card = lv_obj_create(grid);
+    lv_obj_set_grid_cell(power_card, LV_GRID_ALIGN_STRETCH, 1, 1, LV_GRID_ALIGN_STRETCH, 2, 1);
+    lv_obj_add_style(power_card, &style_card_action, 0);
+    lv_obj_add_style(power_card, &style_card_pressed, LV_STATE_PRESSED);
+    lv_obj_t* power_icon = lv_label_create(power_card);
+    lv_label_set_text(power_icon, LV_SYMBOL_POWER);
+    lv_obj_set_style_text_font(power_icon, &lv_font_montserrat_20, 0);
+    lv_obj_align(power_icon, LV_ALIGN_TOP_MID, 0, 8);
+    lv_obj_t* power_label = lv_label_create(power_card);
+    lv_label_set_text(power_label, "Power");
+    lv_obj_align(power_label, LV_ALIGN_BOTTOM_MID, 0, -8);
+    lv_obj_add_event_cb(power_card, [](lv_event_t* e) {
+        createPowerManagementScreen();
     }, LV_EVENT_CLICKED, NULL);
 
-    // Button 5: Placeholder 2
-    lv_obj_t* ph2_btn = lv_btn_create(menu_cont);
-    lv_obj_add_style(ph2_btn, &style_btn, 0);
-    lv_obj_add_style(ph2_btn, &style_btn_pressed, LV_STATE_PRESSED);
-    lv_obj_set_grid_cell(ph2_btn, LV_GRID_ALIGN_STRETCH, 1, 1, LV_GRID_ALIGN_STRETCH, 1, 1);
-    lv_obj_t* ph2_label = lv_label_create(ph2_btn);
-    lv_label_set_text(ph2_label, "Placeholder");
-    lv_obj_center(ph2_label);
-    lv_obj_add_event_cb(ph2_btn, [](lv_event_t* e) {
-        DEBUG_PRINT("Placeholder 2 clicked");
-    }, LV_EVENT_CLICKED, NULL);
+    // Add status bar before loading the screen
+    addStatusBar(main_menu_screen);
+    updateStatus("Ready", 0xFFFFFF); // Set initial status
 
-    // Button 6: Placeholder 3
-    lv_obj_t* ph3_btn = lv_btn_create(menu_cont);
-    lv_obj_add_style(ph3_btn, &style_btn, 0);
-    lv_obj_add_style(ph3_btn, &style_btn_pressed, LV_STATE_PRESSED);
-    lv_obj_set_grid_cell(ph3_btn, LV_GRID_ALIGN_STRETCH, 2, 1, LV_GRID_ALIGN_STRETCH, 1, 1);
-    lv_obj_t* ph3_label = lv_label_create(ph3_btn);
-    lv_label_set_text(ph3_label, "Placeholder");
-    lv_obj_center(ph3_label);
-    lv_obj_add_event_cb(ph3_btn, [](lv_event_t* e) {
-        DEBUG_PRINT("Placeholder 3 clicked");
-    }, LV_EVENT_CLICKED, NULL);
-
+    // Load the screen and add time display
     lv_scr_load(main_menu_screen);
+    addTimeDisplay(main_menu_screen);
+
+    DEBUG_PRINTF("Free heap after main menu: %d bytes\n", heap_caps_get_free_size(MALLOC_CAP_8BIT));
 }
 
+// Update status function
 void updateStatus(const char* message, uint32_t color) {
-    if (status_bar) {
-        lv_label_set_text(status_bar, message);
-        lv_obj_set_style_text_color(status_bar, lv_color_hex(color), 0);
+    if (!status_bar) return; // Ensure status bar exists
+
+    // Get current time from RTC
+    m5::rtc_time_t TimeStruct;
+    M5.Rtc.getTime(&TimeStruct);
+
+    // Format time in 12-hour format with AM/PM
+    char time_str[12]; // Enough for "HH:MM:SS AM/PM" (e.g., "2:30 PM")
+    struct tm timeinfo;
+    timeinfo.tm_hour = TimeStruct.hours;
+    timeinfo.tm_min = TimeStruct.minutes;
+    timeinfo.tm_sec = TimeStruct.seconds;
+    strftime(time_str, sizeof(time_str), "%I:%M %p", &timeinfo);
+
+    // Remove leading zero if present (e.g., "02:30 PM" -> "2:30 PM")
+    if (time_str[0] == '0') {
+        memmove(time_str, time_str + 1, strlen(time_str));
+    }
+
+    // Update time label
+    if (!time_label) {
+        time_label = lv_label_create(status_bar);
+        lv_obj_set_style_text_font(time_label, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_color(time_label, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_align(time_label, LV_ALIGN_RIGHT_MID, -10, 0);
+    }
+    lv_label_set_text(time_label, time_str);
+
+    // Update status message if needed (assuming status_label exists)
+    if (status_bar && current_status_msg[0] != '\0') {
+        lv_label_set_text(status_bar, current_status_msg);
+        lv_obj_set_style_text_color(status_bar, lv_color_hex(current_status_color), 0);
     }
 }
 
-void updateWifiIndicator() {
-    if (!wifiIndicator) return;
-    switch (wifiManager.getState()) {
-        case WiFiState::WIFI_CONNECTED:
-            lv_label_set_text(wifiIndicator, LV_SYMBOL_WIFI);
-            lv_obj_set_style_text_color(wifiIndicator, lv_color_hex(0x00FF00), 0);
-            break;
-        case WiFiState::WIFI_CONNECTING:
-            lv_label_set_text(wifiIndicator, LV_SYMBOL_WIFI);
-            lv_obj_set_style_text_color(wifiIndicator, lv_color_hex(0xFFFF00), 0);
-            break;
-        case WiFiState::WIFI_DISCONNECTED:
-        case WiFiState::WIFI_SCANNING:
-            lv_label_set_text(wifiIndicator, LV_SYMBOL_WIFI);
-            lv_obj_set_style_text_color(wifiIndicator, lv_color_hex(0xFF6600), 0);
-            break;
-        case WiFiState::WIFI_DISABLED:
-            lv_label_set_text(wifiIndicator, LV_SYMBOL_CLOSE);
-            lv_obj_set_style_text_color(wifiIndicator, lv_color_hex(0xFF0000), 0);
-            break;
-    }
-    lv_obj_move_foreground(wifiIndicator);
-}
-
-void addWifiIndicator(lv_obj_t *screen) {
-    if (wifiIndicator != nullptr) {
-        lv_obj_del(wifiIndicator);
-        wifiIndicator = nullptr;
-    }
-    wifiIndicator = lv_label_create(screen);
-    lv_obj_set_style_text_font(wifiIndicator, &lv_font_montserrat_16, 0);
-    lv_obj_set_style_text_align(wifiIndicator, LV_TEXT_ALIGN_RIGHT, 0);
-    lv_obj_align(wifiIndicator, LV_ALIGN_TOP_RIGHT, -10, 5);
-    lv_obj_set_style_bg_opa(wifiIndicator, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_text_color(wifiIndicator, lv_color_hex(0x00FF00), 0);
-    lv_obj_set_style_pad_all(wifiIndicator, 0, 0);
-    lv_obj_set_size(wifiIndicator, 32, 32);
-    updateWifiIndicator();
-}
-
-void addBatteryIndicator(lv_obj_t *screen) {
-    if (batteryIndicator != nullptr) {
-        lv_obj_del(batteryIndicator);
-        batteryIndicator = nullptr;
-    }
-    batteryIndicator = lv_label_create(screen);
-    lv_obj_set_style_text_font(batteryIndicator, &lv_font_montserrat_16, 0);
-    lv_obj_set_style_text_align(batteryIndicator, LV_TEXT_ALIGN_LEFT, 0);
-    lv_obj_align(batteryIndicator, LV_ALIGN_TOP_LEFT, 10, 5);
-    lv_obj_set_style_bg_opa(batteryIndicator, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_text_color(batteryIndicator, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_pad_all(batteryIndicator, 0, 0);
-    lv_obj_set_size(batteryIndicator, 100, 32);
-    
-    // Always update immediately when creating the indicator
-    updateBatteryIndicator();
-}
-
-void updateBatteryIndicator() {
-    if (!batteryIndicator) return;
-    
-    unsigned long currentTime = millis();
-    int batteryLevel;
-    
-    // Only read the battery level at specified intervals
-    if (lastBatteryLevel == -1 || (currentTime - lastBatteryReadTime) >= BATTERY_READ_INTERVAL) {
-        batteryLevel = M5.Power.getBatteryLevel();
-        
-        // Apply smoothing - don't allow drops of more than 1% at a time unless significant time has passed
-        if (lastBatteryLevel != -1) {
-            if (batteryLevel < lastBatteryLevel) {
-                // If battery level is dropping, limit the rate of change
-                long timeSinceLastRead = currentTime - lastBatteryReadTime;
-                int maxAllowedDrop = 1 + (timeSinceLastRead / 60000); // Allow 1% drop per minute
-                
-                if (batteryLevel < lastBatteryLevel - maxAllowedDrop) {
-                    batteryLevel = lastBatteryLevel - maxAllowedDrop;
-                }
-            } else if (batteryLevel > lastBatteryLevel + 5 && !M5.Power.isCharging()) {
-                // If battery level is increasing by more than 5% and not charging, limit the increase
-                batteryLevel = lastBatteryLevel + 1;
-            }
-        }
-        
-        lastBatteryLevel = batteryLevel;
-        lastBatteryReadTime = currentTime;
-    } else {
-        // Use the cached value
-        batteryLevel = lastBatteryLevel;
-    }
-    
-    bool isCharging = M5.Power.isCharging();
-    
-    // Choose color based on battery level
-    uint32_t batteryColor;
-    if (batteryLevel > 60) {
-        batteryColor = 0x00FF00; // Green for good battery
-    } else if (batteryLevel > 20) {
-        batteryColor = 0xFFFF00; // Yellow for medium battery
-    } else {
-        batteryColor = 0xFF0000; // Red for low battery
-    }
-    
-    // If charging, use a different color
-    if (isCharging) {
-        batteryColor = 0x00FFFF; // Cyan for charging
-    }
-    
-    // Set the battery text with appropriate icon
-    String batteryText;
-    if (isCharging) {
-        batteryText = LV_SYMBOL_CHARGE " " + String(batteryLevel) + "%";
-    } else if (batteryLevel <= 10) {
-        batteryText = LV_SYMBOL_BATTERY_EMPTY " " + String(batteryLevel) + "%";
-    } else if (batteryLevel <= 30) {
-        batteryText = LV_SYMBOL_BATTERY_1 " " + String(batteryLevel) + "%";
-    } else if (batteryLevel <= 60) {
-        batteryText = LV_SYMBOL_BATTERY_2 " " + String(batteryLevel) + "%";
-    } else if (batteryLevel <= 80) {
-        batteryText = LV_SYMBOL_BATTERY_3 " " + String(batteryLevel) + "%";
-    } else {
-        batteryText = LV_SYMBOL_BATTERY_FULL " " + String(batteryLevel) + "%";
-    }
-    
-    lv_label_set_text(batteryIndicator, batteryText.c_str());
-    lv_obj_set_style_text_color(batteryIndicator, lv_color_hex(batteryColor), 0);
-    lv_obj_move_foreground(batteryIndicator);
-    lv_obj_invalidate(batteryIndicator);
-}
-
+// Create gender menu function
 void createGenderMenu() {
-    if (genderMenu) {
-        DEBUG_PRINT("Cleaning existing gender menu");
-        lv_obj_del(genderMenu);
-        genderMenu = nullptr;
-    }
-    genderMenu = lv_obj_create(NULL);
-    lv_obj_add_style(genderMenu, &style_screen, 0);
-    lv_scr_load(genderMenu);
-    DEBUG_PRINTF("Gender menu created: %p\n", genderMenu);
-    
-    // Force immediate update of indicators
-    addWifiIndicator(genderMenu);
-    addBatteryIndicator(genderMenu);
-    lv_timer_handler(); // Process any pending UI updates
-    
-    lv_obj_t *header = lv_obj_create(genderMenu);
-    lv_obj_set_size(header, 320, 50);
-    lv_obj_set_style_bg_color(header, lv_color_hex(0x333333), 0);
-    lv_obj_t *title = lv_label_create(header);
-    lv_label_set_text(title, "Select Gender");
-    lv_obj_add_style(title, &style_title, 0);
-    lv_obj_align(title, LV_ALIGN_CENTER, 0, 0);
+    // Create the screen
+    lv_obj_t* gender_screen = lv_obj_create(NULL);
+    lv_obj_add_style(gender_screen, &style_screen, 0); // Assuming this sets basic screen style
+    lv_obj_set_style_bg_color(gender_screen, lv_color_hex(0x1A1A1A), 0); // Dark gray background
+    lv_obj_set_style_bg_opa(gender_screen, LV_OPA_COVER, 0);
+    lv_obj_add_flag(gender_screen, LV_OBJ_FLAG_SCROLLABLE); // Screen scrolls if needed
 
-    for (int i = 0; i < 2; i++) {
-        lv_obj_t *btn = lv_btn_create(genderMenu);
-        lv_obj_set_size(btn, 280, 80);
-        lv_obj_align(btn, LV_ALIGN_TOP_MID, 0, 60 + i * 90);
-        lv_obj_add_style(btn, &style_btn, 0);
-        lv_obj_add_style(btn, &style_btn_pressed, LV_STATE_PRESSED);
-        lv_obj_t *label = lv_label_create(btn);
-        lv_label_set_text(label, genders[i]);
-        lv_obj_center(label);
-        lv_obj_add_event_cb(btn, [](lv_event_t *e) {
-            currentEntry = String(lv_label_get_text(lv_obj_get_child(lv_event_get_target(e), 0))) + ",";
-            delay(100); // Small delay for stability
-            createColorMenuShirt();
-        }, LV_EVENT_CLICKED, NULL);
-    }
-
-    // Add Back button
-    lv_obj_t *back_btn = lv_btn_create(genderMenu);
-    lv_obj_align(back_btn, LV_ALIGN_BOTTOM_LEFT, 10, -10);
-    lv_obj_set_size(back_btn, 100, 40);
+    // Back Button (Top-Left)
+    lv_obj_t* back_btn = lv_btn_create(gender_screen);
+    lv_obj_set_size(back_btn, 60, 40);
+    lv_obj_align(back_btn, LV_ALIGN_TOP_LEFT, 10, 10);
+    lv_obj_set_style_bg_color(back_btn, lv_color_hex(0x333333), 0); // Darker gray button
+    lv_obj_set_style_radius(back_btn, 5, 0);
     lv_obj_add_style(back_btn, &style_btn, 0);
     lv_obj_add_style(back_btn, &style_btn_pressed, LV_STATE_PRESSED);
-    
-    lv_obj_t *back_label = lv_label_create(back_btn);
-    lv_label_set_text(back_label, LV_SYMBOL_LEFT " Back");
+    lv_obj_t* back_label = lv_label_create(back_btn);
+    lv_label_set_text(back_label, LV_SYMBOL_LEFT); // Left arrow icon
     lv_obj_center(back_label);
-    
-    lv_obj_add_event_cb(back_btn, [](lv_event_t *e) {
-        delay(100);
-        DEBUG_PRINT("Returning to main menu");
+    lv_obj_set_style_text_color(back_label, lv_color_hex(0xFFFFFF), 0); // White text
+    lv_obj_add_event_cb(back_btn, [](lv_event_t* e) {
         createMainMenu();
-        if (genderMenu && genderMenu != lv_scr_act()) {
-            DEBUG_PRINTF("Cleaning old gender menu: %p\n", genderMenu);
-            lv_obj_del_async(genderMenu);
-            genderMenu = nullptr;
-        }
     }, LV_EVENT_CLICKED, NULL);
+
+    // Title
+    lv_obj_t* title = lv_label_create(gender_screen);
+    lv_label_set_text(title, "Select Gender");
+    lv_obj_add_style(title, &style_title, 0); // Assuming this sets font/size
+    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0); // White text
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 20);
+
+    // Define styles for gender cards
+    static lv_style_t style_card;
+    lv_style_init(&style_card);
+    lv_style_set_bg_color(&style_card, lv_color_hex(0x2D2D2D)); // Dark gray for cards
+    lv_style_set_bg_opa(&style_card, LV_OPA_COVER);
+    lv_style_set_border_color(&style_card, lv_color_hex(0x505050)); // Light gray border
+    lv_style_set_border_width(&style_card, 1);
+    lv_style_set_radius(&style_card, 5);
+    lv_style_set_shadow_color(&style_card, lv_color_hex(0x000000)); // Black shadow
+    lv_style_set_shadow_width(&style_card, 10);
+    lv_style_set_shadow_spread(&style_card, 2);
+    lv_style_set_pad_all(&style_card, 5);
+
+    static lv_style_t style_card_pressed;
+    lv_style_init(&style_card_pressed);
+    lv_style_set_bg_color(&style_card_pressed, lv_color_hex(0x404040)); // Lighter gray when pressed
+    lv_style_set_bg_opa(&style_card_pressed, LV_OPA_COVER);
+
+    // Gender Options
+    const char* genders[] = {"Male", "Female"};
+    int y_offset = 80; // Start below title
+    for (int i = 0; i < 2; i++) { // Only Male and Female from your original
+        lv_obj_t* card = lv_obj_create(gender_screen);
+        lv_obj_set_size(card, SCREEN_WIDTH - 40, 60);
+        lv_obj_set_pos(card, 20, y_offset);
+        lv_obj_add_style(card, &style_card, 0);
+        lv_obj_add_style(card, &style_card_pressed, LV_STATE_PRESSED);
+
+        lv_obj_t* label = lv_label_create(card);
+        lv_label_set_text(label, genders[i]);
+        lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
+        lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_text_font(label, &lv_font_montserrat_16, 0);
+
+        // Event callback based on gender
+        if (strcmp(genders[i], "Male") == 0) {
+            lv_obj_add_event_cb(card, [](lv_event_t* e) {
+                DEBUG_PRINT("Male selected");
+                currentEntry = "Male,";
+                DEBUG_PRINTF("Current entry: %s\n", currentEntry.c_str());
+                createColorMenuShirt();
+            }, LV_EVENT_CLICKED, NULL);
+        } else if (strcmp(genders[i], "Female") == 0) {
+            lv_obj_add_event_cb(card, [](lv_event_t* e) {
+                DEBUG_PRINT("Female selected");
+                currentEntry = "Female,";
+                DEBUG_PRINTF("Current entry: %s\n", currentEntry.c_str());
+                createColorMenuShirt();
+            }, LV_EVENT_CLICKED, NULL);
+        }
+
+        y_offset += 70; // Spacing between cards
+    }
+
+    lv_scr_load(gender_screen);
 }
 
+// Create color menu function
 void createColorMenuShirt() {
     DEBUG_PRINT("Creating Shirt Color Menu");
-    
+
+    if (colorMenu) {
+        DEBUG_PRINTF("Cleaning existing color menu: 0x%08x\n", (unsigned)colorMenu);
+        lv_obj_del_async(colorMenu);
+        colorMenu = nullptr;
+    }
+    shirt_next_btn = nullptr;
+    pants_next_btn = nullptr;
+    shoes_next_btn = nullptr;
+    current_scroll_obj = nullptr;
+
+    DEBUG_PRINTF("Free heap before creation: %d bytes\n", heap_caps_get_free_size(MALLOC_CAP_8BIT));
     colorMenu = lv_obj_create(NULL);
-    lv_obj_t *newMenu = colorMenu;
-    lv_obj_add_style(newMenu, &style_screen, 0);
-    DEBUG_PRINTF("New color menu created: %p\n", newMenu);
-    addWifiIndicator(newMenu);
-    addBatteryIndicator(newMenu);
-    lv_timer_handler(); // Process any pending UI updates
+    if (!colorMenu) {
+        DEBUG_PRINT("Failed to create colorMenu");
+        return;
+    }
+    DEBUG_PRINTF("New color menu created: 0x%08x\n", (unsigned)colorMenu);
+    lv_obj_add_style(colorMenu, &style_screen, 0);
+    lv_obj_set_style_bg_color(colorMenu, lv_color_hex(0x1A1A1A), 0);
+    lv_obj_set_style_bg_grad_color(colorMenu, lv_color_hex(0x2A2A2A), 0);
+    lv_obj_set_style_bg_grad_dir(colorMenu, LV_GRAD_DIR_VER, 0);
+    lv_obj_set_style_bg_opa(colorMenu, LV_OPA_COVER, 0);
 
-    lv_obj_t *header = lv_obj_create(newMenu);
-    lv_obj_set_size(header, 320, 50);
-    lv_obj_set_style_bg_color(header, lv_color_hex(0x333333), 0);
-    lv_obj_t *title = lv_label_create(header);
-    lv_label_set_text(title, "Select Shirt Color");
-    lv_obj_add_style(title, &style_title, 0);
-    lv_obj_align(title, LV_ALIGN_CENTER, 0, 0);
+    // Header
+    lv_obj_t* header = lv_obj_create(colorMenu);
+    lv_obj_set_size(header, SCREEN_WIDTH - 20, 40);
+    lv_obj_align(header, LV_ALIGN_TOP_MID, 0, 5);
+    lv_obj_set_style_bg_color(header, lv_color_hex(0x3A3A3A), 0);
+    lv_obj_set_style_bg_opa(header, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(header, 10, 0);
+    lv_obj_set_style_border_width(header, 0, 0);
+    lv_obj_t* title = lv_label_create(header);
+    lv_label_set_text(title, "Shirt Color");
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_center(title);
 
-    lv_obj_t *container = lv_obj_create(newMenu);
-    lv_obj_set_size(container, 300, 160);
-    lv_obj_align(container, LV_ALIGN_TOP_MID, 0, 60);
-    lv_obj_set_style_bg_opa(container, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_pad_all(container, 5, 0);
-    lv_obj_set_style_pad_row(container, 5, 0);
-    lv_obj_set_style_pad_column(container, 5, 0);
+    // Grid of color buttons
+    lv_obj_t* grid = lv_obj_create(colorMenu);
+    lv_obj_set_size(grid, SCREEN_WIDTH - 20, SCREEN_HEIGHT - 100);
+    lv_obj_align(grid, LV_ALIGN_TOP_MID, 0, 50);
+    lv_obj_set_style_bg_opa(grid, LV_OPA_TRANSP, 0);
+    lv_obj_set_layout(grid, LV_LAYOUT_GRID);
+    static lv_coord_t col_dsc[] = {140, 140, LV_GRID_TEMPLATE_LAST}; // 2 columns
+    static lv_coord_t row_dsc[] = {60, 60, 60, 60, LV_GRID_TEMPLATE_LAST}; // 4 rows
+    lv_obj_set_grid_dsc_array(grid, col_dsc, row_dsc);
+    lv_obj_set_style_pad_all(grid, 5, 0);
 
-    // Set up grid layout on container
-    static lv_coord_t col_dsc[] = {90, 90, 90, LV_GRID_TEMPLATE_LAST};
-    static lv_coord_t row_dsc[] = {40, 40, 40, LV_GRID_TEMPLATE_LAST};
-    
-    lv_obj_set_grid_dsc_array(container, col_dsc, row_dsc);
-    lv_obj_set_layout(container, LV_LAYOUT_GRID);
+    // Color mappings
+    struct ColorInfo {
+        const char* name;
+        uint32_t color;
+    };
+    ColorInfo colorMap[] = {
+        {"Red", 0xFF0000}, {"Orange", 0xFFA500}, {"Yellow", 0xFFFF00},
+        {"Green", 0x00FF00}, {"Blue", 0x0000FF}, {"Purple", 0x800080},
+        {"Black", 0x000000}, {"White", 0xFFFFFF}
+    };
+    const int numColors = sizeof(colorMap) / sizeof(colorMap[0]);
+    DEBUG_PRINTF("Creating %d shirt color buttons\n", numColors);
 
-    lv_obj_set_scroll_dir(container, LV_DIR_VER);
-    lv_obj_set_scrollbar_mode(container, LV_SCROLLBAR_MODE_ACTIVE);
-    lv_obj_add_flag(container, LV_OBJ_FLAG_SCROLL_MOMENTUM | LV_OBJ_FLAG_SCROLLABLE);
-    current_scroll_obj = container;
+    // Array to track selected buttons
+    lv_obj_t* color_buttons[numColors] = {nullptr};
+    selectedShirtColors = ""; // Reset selection
 
-    static lv_point_t last_point = {0, 0};
+    for (int i = 0; i < numColors; i++) {
+        lv_obj_t* btn = lv_btn_create(grid);
+        lv_obj_set_grid_cell(btn, LV_GRID_ALIGN_STRETCH, i % 2, 1, LV_GRID_ALIGN_STRETCH, i / 2, 1);
+        lv_obj_set_style_bg_color(btn, lv_color_hex(colorMap[i].color), 0);
+        lv_obj_set_style_bg_opa(btn, LV_OPA_80, 0); // Faded by default
+        lv_obj_set_style_radius(btn, 15, 0);
+        lv_obj_set_style_border_width(btn, 0, 0);
+        lv_obj_set_style_shadow_width(btn, 5, 0);
+        lv_obj_set_style_shadow_color(btn, lv_color_hex(0x000000), 0);
+        lv_obj_set_style_shadow_opa(btn, LV_OPA_20, 0);
 
-    lv_obj_add_event_cb(container, [](lv_event_t *e) {
-        lv_indev_t *indev = lv_indev_get_act();
-        lv_indev_get_point(indev, &last_point);
-    }, LV_EVENT_PRESSED, NULL);
-
-    lv_obj_add_event_cb(container, [](lv_event_t *e) {
-        lv_obj_t *container = (lv_obj_t*)lv_event_get_user_data(e);
-        lv_indev_t *indev = lv_indev_get_act();
-        lv_point_t curr_point;
-        lv_indev_get_point(indev, &curr_point);
-        lv_coord_t delta_y = last_point.y - curr_point.y;
-        lv_obj_scroll_by(container, 0, delta_y, LV_ANIM_OFF);
-        last_point = curr_point;
-    }, LV_EVENT_PRESSING, container);
-
-    int numShirtColors = sizeof(shirtColors) / sizeof(shirtColors[0]);
-    DEBUG_PRINTF("Creating %d shirt color buttons\n", numShirtColors);
-
-    for (int i = 0; i < numShirtColors; i++) {
-        lv_obj_t *btn = lv_btn_create(container);
-        lv_obj_set_size(btn, 90, 40);
-        lv_obj_add_style(btn, &style_btn, 0);
-        lv_obj_add_style(btn, &style_btn_pressed, LV_STATE_PRESSED);
-        lv_obj_set_grid_cell(btn, LV_GRID_ALIGN_STRETCH, i % 3, 1, LV_GRID_ALIGN_STRETCH, i / 3, 1);
-        lv_obj_set_user_data(btn, (void*)i);
-        
-        lv_obj_t *label = lv_label_create(btn);
-        lv_label_set_text(label, shirtColors[i]);
+        lv_obj_t* label = lv_label_create(btn);
+        lv_label_set_text(label, colorMap[i].name);
+        lv_obj_set_style_text_font(label, &lv_font_montserrat_16, 0);
+        lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
         lv_obj_center(label);
 
-        lv_obj_add_event_cb(btn, [](lv_event_t *e) {
-            lv_obj_t *btn = lv_event_get_target(e);
-            int idx = (int)lv_obj_get_user_data(btn);
-            bool is_selected = lv_obj_has_state(btn, LV_STATE_USER_1);
+        color_buttons[i] = btn;
 
-            if (!is_selected) {
-                lv_obj_add_state(btn, LV_STATE_USER_1);
-                lv_obj_set_style_border_width(btn, 3, LV_PART_MAIN);
-                lv_obj_set_style_border_color(btn, lv_color_hex(0xFFFF00), LV_PART_MAIN);
-                if (!selectedShirtColors.isEmpty()) selectedShirtColors += "+";
-                selectedShirtColors += shirtColors[idx];
-            } else {
-                lv_obj_clear_state(btn, LV_STATE_USER_1);
-                lv_obj_set_style_border_width(btn, 1, LV_PART_MAIN);
-                lv_obj_set_style_border_color(btn, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
-                int pos = selectedShirtColors.indexOf(shirtColors[idx]);
-                if (pos >= 0) {
-                    int nextPlus = selectedShirtColors.indexOf("+", pos);
-                    if (nextPlus >= 0) {
-                        selectedShirtColors.remove(pos, nextPlus - pos + 1);
-                    } else {
-                        if (pos > 0) selectedShirtColors.remove(pos - 1, String(shirtColors[idx]).length() + 1);
-                        else selectedShirtColors.remove(pos, String(shirtColors[idx]).length());
+        lv_obj_add_event_cb(btn, [](lv_event_t* e) {
+            lv_obj_t* btn = lv_event_get_target(e);
+            lv_obj_t* label = lv_obj_get_child(btn, 0);
+            if (label) {
+                String color = lv_label_get_text(label);
+                bool is_selected = lv_obj_get_style_border_width(btn, 0) > 0;
+                if (is_selected) {
+                    // Deselect
+                    lv_obj_set_size(btn, 140, 60); // Reset size
+                    lv_obj_set_style_bg_opa(btn, LV_OPA_80, 0);
+                    lv_obj_set_style_border_width(btn, 0, 0);
+                    lv_obj_set_style_shadow_width(btn, 5, 0);
+                    lv_obj_set_style_shadow_opa(btn, LV_OPA_20, 0);
+                    lv_obj_set_style_shadow_color(btn, lv_color_hex(0x000000), 0);
+                    if (selectedShirtColors.indexOf(color) != -1) {
+                        selectedShirtColors.replace(color + "+", "");
+                        selectedShirtColors.replace("+" + color, "");
+                        selectedShirtColors.replace(color, "");
                     }
+                } else {
+                    // Select
+                    lv_obj_set_size(btn, 150, 65); // Slightly larger
+                    lv_obj_set_style_bg_opa(btn, LV_OPA_100, 0);
+                    lv_obj_set_style_border_width(btn, 4, 0);
+                    lv_obj_set_style_border_color(btn, lv_color_hex(0x00FFFF), 0); // Cyan outline
+                    lv_obj_set_style_shadow_width(btn, 12, 0);
+                    lv_obj_set_style_shadow_opa(btn, LV_OPA_60, 0);
+                    lv_obj_set_style_shadow_color(btn, lv_color_hex(0x00FFFF), 0); // Cyan glow
+                    if (!selectedShirtColors.isEmpty()) selectedShirtColors += "+";
+                    selectedShirtColors += color;
                 }
-            }
-            
-            DEBUG_PRINTF("Selected shirt colors: %s\n", selectedShirtColors.c_str());
-            
-            if (!selectedShirtColors.isEmpty()) {
-                if (shirt_next_btn == nullptr) {
-                    shirt_next_btn = lv_btn_create(lv_obj_get_parent(lv_obj_get_parent(btn)));
-                    lv_obj_align(shirt_next_btn, LV_ALIGN_BOTTOM_RIGHT, -10, -10);
-                    lv_obj_set_size(shirt_next_btn, 100, 40);
-                    lv_obj_add_style(shirt_next_btn, &style_btn, 0);
-                    lv_obj_add_style(shirt_next_btn, &style_btn_pressed, LV_STATE_PRESSED);
-                    
-                    lv_obj_t* next_label = lv_label_create(shirt_next_btn);
-                    lv_label_set_text(next_label, "Next " LV_SYMBOL_RIGHT);
-                    lv_obj_center(next_label);
-                    
-                    lv_obj_add_event_cb(shirt_next_btn, [](lv_event_t* e) {
-                        currentEntry += selectedShirtColors + ",";
-                        DEBUG_PRINTF("Current entry: %s\n", currentEntry.c_str());
-                        delay(100);
-                        DEBUG_PRINT("Transitioning to pants menu");
-                        createColorMenuPants();
-                        if (colorMenu && colorMenu != lv_scr_act()) {
-                            DEBUG_PRINTF("Cleaning old color menu: %p\n", colorMenu);
-                            lv_obj_del_async(colorMenu);
-                            colorMenu = nullptr;
-                        }
-                        DEBUG_PRINT("Shirt menu transition complete");
-                    }, LV_EVENT_CLICKED, NULL);
-                }
+                DEBUG_PRINTF("Shirt colors updated: %s\n", selectedShirtColors.c_str());
             }
         }, LV_EVENT_CLICKED, NULL);
+
+        DEBUG_PRINTF("Created color button %d: %s\n", i, colorMap[i].name);
     }
 
-    for (int i = 0; i < numShirtColors; i++) {
-        lv_obj_t *btn = lv_obj_get_child(container, i);
-        if (btn && lv_obj_check_type(btn, &lv_btn_class)) {
-            uint32_t color_hex = 0x4A4A4A; // Default gray
-            if (strcmp(shirtColors[i], "White") == 0) color_hex = 0xFFFFFF;
-            else if (strcmp(shirtColors[i], "Black") == 0) color_hex = 0x000000;
-            else if (strcmp(shirtColors[i], "Red") == 0) color_hex = 0xFF0000;
-            else if (strcmp(shirtColors[i], "Orange") == 0) color_hex = 0xFFA500;
-            else if (strcmp(shirtColors[i], "Yellow") == 0) color_hex = 0xFFFF00;
-            else if (strcmp(shirtColors[i], "Green") == 0) color_hex = 0x00FF00;
-            else if (strcmp(shirtColors[i], "Blue") == 0) color_hex = 0x0000FF;
-            else if (strcmp(shirtColors[i], "Purple") == 0) color_hex = 0x800080;
-            
-            lv_obj_set_style_bg_color(btn, lv_color_hex(color_hex), 0);
-            lv_obj_set_style_bg_color(btn, lv_color_hex(color_hex), LV_STATE_PRESSED);
-            
-            uint32_t text_color = 0xFFFFFF; // Default white text
-            if (strcmp(shirtColors[i], "White") == 0 || 
-                strcmp(shirtColors[i], "Yellow") == 0) {
-                text_color = 0x000000; // Black text for light backgrounds
-            }
-            
-            lv_obj_t *label = lv_obj_get_child(btn, 0);
-            if (label && lv_obj_check_type(label, &lv_label_class)) {
-                lv_obj_set_style_text_color(label, lv_color_hex(text_color), 0);
-            }
-        }
-    }
-
-    lv_obj_t *back_btn = lv_btn_create(newMenu);
+    // Back Button
+    lv_obj_t* back_btn = lv_btn_create(colorMenu);
+    lv_obj_set_size(back_btn, 120, 40);
     lv_obj_align(back_btn, LV_ALIGN_BOTTOM_LEFT, 10, -10);
-    lv_obj_set_size(back_btn, 100, 40);
-    lv_obj_add_style(back_btn, &style_btn, 0);
-    lv_obj_add_style(back_btn, &style_btn_pressed, LV_STATE_PRESSED);
-    
-    lv_obj_t *back_label = lv_label_create(back_btn);
-    lv_label_set_text(back_label, LV_SYMBOL_LEFT " Back");
+    lv_obj_set_style_bg_color(back_btn, lv_color_hex(0x4A4A4A), 0);
+    lv_obj_set_style_bg_opa(back_btn, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(back_btn, lv_color_hex(0x6A6A6A), LV_STATE_PRESSED);
+    lv_obj_set_style_radius(back_btn, 20, 0);
+    lv_obj_set_style_shadow_width(back_btn, 5, 0);
+    lv_obj_set_style_shadow_color(back_btn, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_shadow_opa(back_btn, LV_OPA_20, 0);
+    lv_obj_t* back_label = lv_label_create(back_btn);
+    lv_label_set_text(back_label, "Back " LV_SYMBOL_LEFT);
+    lv_obj_set_style_text_font(back_label, &lv_font_montserrat_16, 0);
     lv_obj_center(back_label);
-    
-    lv_obj_add_event_cb(back_btn, [](lv_event_t *e) {
-        delay(100);
-        DEBUG_PRINT("Returning to gender menu");
-        createGenderMenu();
-        if (colorMenu && colorMenu != lv_scr_act()) {
-            DEBUG_PRINTF("Cleaning old color menu: %p\n", colorMenu);
-            lv_obj_del_async(colorMenu);
+    lv_obj_add_event_cb(back_btn, [](lv_event_t* e) {
+        if (xSemaphoreTake(xGuiSemaphore, (TickType_t)10) == pdTRUE) {
+            lv_obj_t* old_menu = colorMenu;
             colorMenu = nullptr;
+            selectedShirtColors = "";
+            createGenderMenu();
+            if (old_menu && old_menu != lv_scr_act()) {
+                lv_obj_del_async(old_menu);
+            }
+            xSemaphoreGive(xGuiSemaphore);
         }
     }, LV_EVENT_CLICKED, NULL);
-    
-    lv_scr_load(newMenu);
-    
-    if (colorMenu && colorMenu != newMenu) {
-        DEBUG_PRINTF("Cleaning existing color menu: %p\n", colorMenu);
-        lv_obj_del_async(colorMenu);
-    }
-    
-    colorMenu = newMenu;
+    DEBUG_PRINT("Back button created");
+
+    // Next Button
+    shirt_next_btn = lv_btn_create(colorMenu);
+    lv_obj_set_size(shirt_next_btn, 120, 40);
+    lv_obj_align(shirt_next_btn, LV_ALIGN_BOTTOM_RIGHT, -10, -10);
+    lv_obj_set_style_bg_color(shirt_next_btn, lv_color_hex(0x4A4A4A), 0);
+    lv_obj_set_style_bg_opa(shirt_next_btn, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(shirt_next_btn, lv_color_hex(0x6A6A6A), LV_STATE_PRESSED);
+    lv_obj_set_style_radius(shirt_next_btn, 20, 0);
+    lv_obj_set_style_shadow_width(shirt_next_btn, 5, 0);
+    lv_obj_set_style_shadow_color(shirt_next_btn, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_shadow_opa(shirt_next_btn, LV_OPA_20, 0);
+    lv_obj_t* next_label = lv_label_create(shirt_next_btn);
+    lv_label_set_text(next_label, "Next " LV_SYMBOL_RIGHT);
+    lv_obj_set_style_text_font(next_label, &lv_font_montserrat_16, 0);
+    lv_obj_center(next_label);
+    lv_obj_add_event_cb(shirt_next_btn, [](lv_event_t* e) {
+        if (xSemaphoreTake(xGuiSemaphore, (TickType_t)10) == pdTRUE) {
+            if (selectedShirtColors.isEmpty()) {
+                lv_obj_t* header = lv_obj_get_child(lv_scr_act(), 0);
+                lv_obj_set_style_bg_color(header, lv_color_hex(0xFF0000), 0);
+                lv_timer_create([](lv_timer_t* timer) {
+                    lv_obj_t* header = (lv_obj_t*)timer->user_data;
+                    lv_obj_set_style_bg_color(header, lv_color_hex(0x3A3A3A), 0);
+                    lv_timer_del(timer);
+                }, 200, header);
+            } else {
+                lv_obj_t* old_menu = colorMenu;
+                colorMenu = nullptr;
+                currentEntry += selectedShirtColors + ",";
+                DEBUG_PRINTF("Transitioning to pants menu with Shirt: %s\n", selectedShirtColors.c_str());
+                createColorMenuPants();
+                if (old_menu && old_menu != lv_scr_act()) {
+                    lv_obj_del_async(old_menu);
+                }
+            }
+            xSemaphoreGive(xGuiSemaphore);
+        }
+    }, LV_EVENT_CLICKED, NULL);
+    DEBUG_PRINT("Next button created");
+
+    lv_scr_load(colorMenu);
+    DEBUG_PRINT("Shirt color menu loaded");
 }
 
+// Create color menu function
 void createColorMenuPants() {
     DEBUG_PRINT("Creating Pants Color Menu");
-    
-    lv_obj_t* newMenu = lv_obj_create(NULL);
-    lv_obj_add_style(newMenu, &style_screen, 0);
-    DEBUG_PRINTF("New color menu created: %p\n", newMenu);
-    addWifiIndicator(newMenu);
-    addBatteryIndicator(newMenu);
-    lv_timer_handler(); // Process any pending UI updates
 
-    lv_obj_t *header = lv_obj_create(newMenu);
-    lv_obj_set_size(header, 320, 50);
-    lv_obj_set_style_bg_color(header, lv_color_hex(0x333333), 0);
-    lv_obj_t *title = lv_label_create(header);
-    lv_label_set_text(title, "Select Pants Color");
-    lv_obj_add_style(title, &style_title, 0);
-    lv_obj_align(title, LV_ALIGN_CENTER, 0, 0);
+    if (colorMenu) {
+        DEBUG_PRINTF("Cleaning existing color menu: 0x%08x\n", (unsigned)colorMenu);
+        lv_obj_del_async(colorMenu);
+        colorMenu = nullptr;
+    }
+    shirt_next_btn = nullptr;
+    pants_next_btn = nullptr;
+    shoes_next_btn = nullptr;
+    current_scroll_obj = nullptr;
 
-    lv_obj_t *container = lv_obj_create(newMenu);
-    lv_obj_set_size(container, 300, 150);
-    lv_obj_align(container, LV_ALIGN_TOP_MID, 0, 60);
-    lv_obj_set_style_bg_opa(container, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_pad_all(container, 5, 0);
-    lv_obj_set_style_pad_row(container, 8, 0);
-    lv_obj_set_style_pad_column(container, 8, 0);
-    
-    // Set up grid layout on container with fixed sizes
-    static lv_coord_t col_dsc[] = {90, 90, 90, LV_GRID_TEMPLATE_LAST};
-    static lv_coord_t row_dsc[] = {40, 40, 40, LV_GRID_TEMPLATE_LAST};
-    
-    lv_obj_set_grid_dsc_array(container, col_dsc, row_dsc);
-    lv_obj_set_layout(container, LV_LAYOUT_GRID);
-    lv_obj_set_scroll_dir(container, LV_DIR_VER);
-    lv_obj_set_scrollbar_mode(container, LV_SCROLLBAR_MODE_ACTIVE);
-    lv_obj_add_flag(container, LV_OBJ_FLAG_SCROLL_MOMENTUM | LV_OBJ_FLAG_SCROLLABLE);
-    current_scroll_obj = container;
+    DEBUG_PRINTF("Free heap before creation: %d bytes\n", heap_caps_get_free_size(MALLOC_CAP_8BIT));
+    colorMenu = lv_obj_create(NULL);
+    if (!colorMenu) {
+        DEBUG_PRINT("Failed to create colorMenu");
+        return;
+    }
+    DEBUG_PRINTF("New color menu created: 0x%08x\n", (unsigned)colorMenu);
+    lv_obj_add_style(colorMenu, &style_screen, 0);
+    lv_obj_set_style_bg_color(colorMenu, lv_color_hex(0x1A1A1A), 0);
+    lv_obj_set_style_bg_grad_color(colorMenu, lv_color_hex(0x2A2A2A), 0);
+    lv_obj_set_style_bg_grad_dir(colorMenu, LV_GRAD_DIR_VER, 0);
+    lv_obj_set_style_bg_opa(colorMenu, LV_OPA_COVER, 0);
 
-    static lv_point_t last_point = {0, 0};
+    // Header
+    lv_obj_t* header = lv_obj_create(colorMenu);
+    lv_obj_set_size(header, SCREEN_WIDTH - 20, 40);
+    lv_obj_align(header, LV_ALIGN_TOP_MID, 0, 5);
+    lv_obj_set_style_bg_color(header, lv_color_hex(0x3A3A3A), 0);
+    lv_obj_set_style_bg_opa(header, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(header, 10, 0);
+    lv_obj_set_style_border_width(header, 0, 0);
+    lv_obj_t* title = lv_label_create(header);
+    lv_label_set_text(title, "Pants Color");
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_center(title);
 
-    lv_obj_add_event_cb(container, [](lv_event_t *e) {
-        lv_indev_t *indev = lv_indev_get_act();
-        lv_indev_get_point(indev, &last_point);
-    }, LV_EVENT_PRESSED, NULL);
+    // Grid of color buttons
+    lv_obj_t* grid = lv_obj_create(colorMenu);
+    lv_obj_set_size(grid, SCREEN_WIDTH - 20, SCREEN_HEIGHT - 100);
+    lv_obj_align(grid, LV_ALIGN_TOP_MID, 0, 50);
+    lv_obj_set_style_bg_opa(grid, LV_OPA_TRANSP, 0);
+    lv_obj_set_layout(grid, LV_LAYOUT_GRID);
+    static lv_coord_t col_dsc[] = {140, 140, LV_GRID_TEMPLATE_LAST}; // 2 columns
+    static lv_coord_t row_dsc[] = {60, 60, 60, 60, LV_GRID_TEMPLATE_LAST}; // 4 rows
+    lv_obj_set_grid_dsc_array(grid, col_dsc, row_dsc);
+    lv_obj_set_style_pad_all(grid, 5, 0);
 
-    lv_obj_add_event_cb(container, [](lv_event_t *e) {
-        lv_obj_t *container = (lv_obj_t*)lv_event_get_user_data(e);
-        lv_indev_t *indev = lv_indev_get_act();
-        lv_point_t curr_point;
-        lv_indev_get_point(indev, &curr_point);
-        lv_coord_t delta_y = last_point.y - curr_point.y;
-        lv_obj_scroll_by(container, 0, delta_y, LV_ANIM_OFF);
-        last_point = curr_point;
-    }, LV_EVENT_PRESSING, container);
+    // Color mappings
+    struct ColorInfo {
+        const char* name;
+        uint32_t color;
+    };
+    ColorInfo colorMap[] = {
+        {"Red", 0xFF0000}, {"Orange", 0xFFA500}, {"Yellow", 0xFFFF00},
+        {"Green", 0x00FF00}, {"Blue", 0x0000FF}, {"Purple", 0x800080},
+        {"Black", 0x000000}, {"White", 0xFFFFFF}
+    };
+    const int numColors = sizeof(colorMap) / sizeof(colorMap[0]);
+    DEBUG_PRINTF("Creating %d pants color buttons\n", numColors);
 
-    int numPantsColors = sizeof(pantsColors) / sizeof(pantsColors[0]);
-    DEBUG_PRINTF("Creating %d pants color buttons\n", numPantsColors);
+    // Array to track selected buttons
+    lv_obj_t* color_buttons[numColors] = {nullptr};
+    selectedPantsColors = ""; // Reset selection
 
-    for (int i = 0; i < numPantsColors; i++) {
-        lv_obj_t *btn = lv_btn_create(container);
-        lv_obj_set_size(btn, 90, 40);
-        lv_obj_add_style(btn, &style_btn, 0);
-        lv_obj_add_style(btn, &style_btn_pressed, LV_STATE_PRESSED);
-        lv_obj_set_grid_cell(btn, LV_GRID_ALIGN_STRETCH, i % 3, 1, LV_GRID_ALIGN_STRETCH, i / 3, 1);
-        lv_obj_set_user_data(btn, (void*)i);
-        
-        lv_obj_t *label = lv_label_create(btn);
-        lv_label_set_text(label, pantsColors[i]);
+    for (int i = 0; i < numColors; i++) {
+        lv_obj_t* btn = lv_btn_create(grid);
+        lv_obj_set_grid_cell(btn, LV_GRID_ALIGN_STRETCH, i % 2, 1, LV_GRID_ALIGN_STRETCH, i / 2, 1);
+        lv_obj_set_style_bg_color(btn, lv_color_hex(colorMap[i].color), 0);
+        lv_obj_set_style_bg_opa(btn, LV_OPA_80, 0); // Faded by default
+        lv_obj_set_style_radius(btn, 15, 0);
+        lv_obj_set_style_border_width(btn, 0, 0);
+        lv_obj_set_style_shadow_width(btn, 5, 0);
+        lv_obj_set_style_shadow_color(btn, lv_color_hex(0x000000), 0);
+        lv_obj_set_style_shadow_opa(btn, LV_OPA_20, 0);
+
+        lv_obj_t* label = lv_label_create(btn);
+        lv_label_set_text(label, colorMap[i].name);
+        lv_obj_set_style_text_font(label, &lv_font_montserrat_16, 0);
+        lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
         lv_obj_center(label);
 
-        lv_obj_add_event_cb(btn, [](lv_event_t *e) {
-            lv_obj_t *btn = lv_event_get_target(e);
-            int idx = (int)lv_obj_get_user_data(btn);
-            bool is_selected = lv_obj_has_state(btn, LV_STATE_USER_1);
+        color_buttons[i] = btn;
 
-            if (!is_selected) {
-                lv_obj_add_state(btn, LV_STATE_USER_1);
-                lv_obj_set_style_border_width(btn, 3, LV_PART_MAIN);
-                lv_obj_set_style_border_color(btn, lv_color_hex(0xFFFF00), LV_PART_MAIN);
-                if (!selectedPantsColors.isEmpty()) selectedPantsColors += "+";
-                selectedPantsColors += pantsColors[idx];
-            } else {
-                lv_obj_clear_state(btn, LV_STATE_USER_1);
-                lv_obj_set_style_border_width(btn, 1, LV_PART_MAIN);
-                lv_obj_set_style_border_color(btn, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
-                int pos = selectedPantsColors.indexOf(pantsColors[idx]);
-                if (pos >= 0) {
-                    int nextPlus = selectedPantsColors.indexOf("+", pos);
-                    if (nextPlus >= 0) {
-                        selectedPantsColors.remove(pos, nextPlus - pos + 1);
-                    } else {
-                        if (pos > 0) selectedPantsColors.remove(pos - 1, String(pantsColors[idx]).length() + 1);
-                        else selectedPantsColors.remove(pos, String(pantsColors[idx]).length());
+        lv_obj_add_event_cb(btn, [](lv_event_t* e) {
+            lv_obj_t* btn = lv_event_get_target(e);
+            lv_obj_t* label = lv_obj_get_child(btn, 0);
+            if (label) {
+                String color = lv_label_get_text(label);
+                bool is_selected = lv_obj_get_style_border_width(btn, 0) > 0;
+                if (is_selected) {
+                    // Deselect
+                    lv_obj_set_size(btn, 140, 60); // Reset size
+                    lv_obj_set_style_bg_opa(btn, LV_OPA_80, 0);
+                    lv_obj_set_style_border_width(btn, 0, 0);
+                    lv_obj_set_style_shadow_width(btn, 5, 0);
+                    lv_obj_set_style_shadow_opa(btn, LV_OPA_20, 0);
+                    lv_obj_set_style_shadow_color(btn, lv_color_hex(0x000000), 0);
+                    if (selectedPantsColors.indexOf(color) != -1) {
+                        selectedPantsColors.replace(color + "+", "");
+                        selectedPantsColors.replace("+" + color, "");
+                        selectedPantsColors.replace(color, "");
                     }
+                } else {
+                    // Select
+                    lv_obj_set_size(btn, 150, 65); // Slightly larger
+                    lv_obj_set_style_bg_opa(btn, LV_OPA_100, 0);
+                    lv_obj_set_style_border_width(btn, 4, 0);
+                    lv_obj_set_style_border_color(btn, lv_color_hex(0x00FFFF), 0); // Cyan outline
+                    lv_obj_set_style_shadow_width(btn, 12, 0);
+                    lv_obj_set_style_shadow_opa(btn, LV_OPA_60, 0);
+                    lv_obj_set_style_shadow_color(btn, lv_color_hex(0x00FFFF), 0); // Cyan glow
+                    if (!selectedPantsColors.isEmpty()) selectedPantsColors += "+";
+                    selectedPantsColors += color;
                 }
-            }
-            
-            DEBUG_PRINTF("Selected pants colors: %s\n", selectedPantsColors.c_str());
-            
-            if (!selectedPantsColors.isEmpty()) {
-                if (pants_next_btn == nullptr) {
-                    pants_next_btn = lv_btn_create(lv_obj_get_parent(lv_obj_get_parent(btn)));
-                    lv_obj_align(pants_next_btn, LV_ALIGN_BOTTOM_RIGHT, -10, -10);
-                    lv_obj_set_size(pants_next_btn, 100, 40);
-                    lv_obj_add_style(pants_next_btn, &style_btn, 0);
-                    lv_obj_add_style(pants_next_btn, &style_btn_pressed, LV_STATE_PRESSED);
-                    
-                    lv_obj_t* next_label = lv_label_create(pants_next_btn);
-                    lv_label_set_text(next_label, "Next " LV_SYMBOL_RIGHT);
-                    lv_obj_center(next_label);
-                    
-                    lv_obj_add_event_cb(pants_next_btn, [](lv_event_t* e) {
-                        currentEntry += selectedPantsColors + ",";
-                        DEBUG_PRINTF("Current entry: %s\n", currentEntry.c_str());
-                        delay(100);
-                        DEBUG_PRINT("Transitioning to shoes menu");
-                        createColorMenuShoes();
-                        if (colorMenu && colorMenu != lv_scr_act()) {
-                            DEBUG_PRINTF("Cleaning old color menu: %p\n", colorMenu);
-                            lv_obj_del_async(colorMenu);
-                            colorMenu = nullptr;
-                        }
-                        DEBUG_PRINT("Pants menu transition complete");
-                    }, LV_EVENT_CLICKED, NULL);
-                }
+                DEBUG_PRINTF("Pants colors updated: %s\n", selectedPantsColors.c_str());
             }
         }, LV_EVENT_CLICKED, NULL);
+
+        DEBUG_PRINTF("Created color button %d: %s\n", i, colorMap[i].name);
     }
 
-    for (int i = 0; i < numPantsColors; i++) {
-        lv_obj_t *btn = lv_obj_get_child(container, i);
-        if (btn && lv_obj_check_type(btn, &lv_btn_class)) {
-            uint32_t color_hex = 0x4A4A4A; // Default gray
-            if (strcmp(pantsColors[i], "White") == 0) color_hex = 0xFFFFFF;
-            else if (strcmp(pantsColors[i], "Black") == 0) color_hex = 0x000000;
-            else if (strcmp(pantsColors[i], "Red") == 0) color_hex = 0xFF0000;
-            else if (strcmp(pantsColors[i], "Orange") == 0) color_hex = 0xFFA500;
-            else if (strcmp(pantsColors[i], "Yellow") == 0) color_hex = 0xFFFF00;
-            else if (strcmp(pantsColors[i], "Green") == 0) color_hex = 0x00FF00;
-            else if (strcmp(pantsColors[i], "Blue") == 0) color_hex = 0x0000FF;
-            else if (strcmp(pantsColors[i], "Purple") == 0) color_hex = 0x800080;
-            else if (strcmp(pantsColors[i], "Brown") == 0) color_hex = 0x8B4513;
-            else if (strcmp(pantsColors[i], "Grey") == 0) color_hex = 0x808080;
-            else if (strcmp(pantsColors[i], "Tan") == 0) color_hex = 0xD2B48C;
-            
-            lv_obj_set_style_bg_color(btn, lv_color_hex(color_hex), 0);
-            lv_obj_set_style_bg_color(btn, lv_color_hex(color_hex), LV_STATE_PRESSED);
-            
-            uint32_t text_color = 0xFFFFFF; // Default white text
-            if (strcmp(pantsColors[i], "White") == 0 || 
-                strcmp(pantsColors[i], "Yellow") == 0 ||
-                strcmp(pantsColors[i], "Tan") == 0) {
-                text_color = 0x000000; // Black text for light backgrounds
-            }
-            
-            lv_obj_t *label = lv_obj_get_child(btn, 0);
-            if (label && lv_obj_check_type(label, &lv_label_class)) {
-                lv_obj_set_style_text_color(label, lv_color_hex(text_color), 0);
-            }
-        }
-    }
-
-    lv_obj_t *back_btn = lv_btn_create(newMenu);
+    // Back Button
+    lv_obj_t* back_btn = lv_btn_create(colorMenu);
+    lv_obj_set_size(back_btn, 120, 40);
     lv_obj_align(back_btn, LV_ALIGN_BOTTOM_LEFT, 10, -10);
-    lv_obj_set_size(back_btn, 100, 40);
-    lv_obj_add_style(back_btn, &style_btn, 0);
-    lv_obj_add_style(back_btn, &style_btn_pressed, LV_STATE_PRESSED);
-    
-    lv_obj_t *back_label = lv_label_create(back_btn);
-    lv_label_set_text(back_label, LV_SYMBOL_LEFT " Back");
+    lv_obj_set_style_bg_color(back_btn, lv_color_hex(0x4A4A4A), 0);
+    lv_obj_set_style_bg_opa(back_btn, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(back_btn, lv_color_hex(0x6A6A6A), LV_STATE_PRESSED);
+    lv_obj_set_style_radius(back_btn, 20, 0);
+    lv_obj_set_style_shadow_width(back_btn, 5, 0);
+    lv_obj_set_style_shadow_color(back_btn, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_shadow_opa(back_btn, LV_OPA_20, 0);
+    lv_obj_t* back_label = lv_label_create(back_btn);
+    lv_label_set_text(back_label, "Back " LV_SYMBOL_LEFT);
+    lv_obj_set_style_text_font(back_label, &lv_font_montserrat_16, 0);
     lv_obj_center(back_label);
-    
-    lv_obj_add_event_cb(back_btn, [](lv_event_t *e) {
-        delay(100);
-        DEBUG_PRINT("Returning to shirt menu");
-        
-        pants_next_btn = nullptr;
-        shoes_next_btn = nullptr;
-        
-        createColorMenuShirt();
-        if (colorMenu && colorMenu != lv_scr_act()) {
-            DEBUG_PRINTF("Cleaning old color menu: %p\n", colorMenu);
-            lv_obj_del_async(colorMenu);
+    lv_obj_add_event_cb(back_btn, [](lv_event_t* e) {
+        if (xSemaphoreTake(xGuiSemaphore, (TickType_t)10) == pdTRUE) {
+            lv_obj_t* old_menu = colorMenu;
             colorMenu = nullptr;
+            selectedPantsColors = "";
+            createColorMenuShirt();
+            if (old_menu && old_menu != lv_scr_act()) {
+                lv_obj_del_async(old_menu);
+            }
+            xSemaphoreGive(xGuiSemaphore);
         }
     }, LV_EVENT_CLICKED, NULL);
-    
-    lv_scr_load(newMenu);
-    
-    if (colorMenu && colorMenu != newMenu) {
-        DEBUG_PRINTF("Cleaning existing color menu: %p\n", colorMenu);
-        lv_obj_del_async(colorMenu);
-    }
-    
-    colorMenu = newMenu;
+    DEBUG_PRINT("Back button created");
+
+    // Next Button
+    pants_next_btn = lv_btn_create(colorMenu);
+    lv_obj_set_size(pants_next_btn, 120, 40);
+    lv_obj_align(pants_next_btn, LV_ALIGN_BOTTOM_RIGHT, -10, -10);
+    lv_obj_set_style_bg_color(pants_next_btn, lv_color_hex(0x4A4A4A), 0);
+    lv_obj_set_style_bg_opa(pants_next_btn, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(pants_next_btn, lv_color_hex(0x6A6A6A), LV_STATE_PRESSED);
+    lv_obj_set_style_radius(pants_next_btn, 20, 0);
+    lv_obj_set_style_shadow_width(pants_next_btn, 5, 0);
+    lv_obj_set_style_shadow_color(pants_next_btn, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_shadow_opa(pants_next_btn, LV_OPA_20, 0);
+    lv_obj_t* next_label = lv_label_create(pants_next_btn);
+    lv_label_set_text(next_label, "Next " LV_SYMBOL_RIGHT);
+    lv_obj_set_style_text_font(next_label, &lv_font_montserrat_16, 0);
+    lv_obj_center(next_label);
+    lv_obj_add_event_cb(pants_next_btn, [](lv_event_t* e) {
+        if (xSemaphoreTake(xGuiSemaphore, (TickType_t)10) == pdTRUE) {
+            if (selectedPantsColors.isEmpty()) {
+                lv_obj_t* header = lv_obj_get_child(lv_scr_act(), 0);
+                lv_obj_set_style_bg_color(header, lv_color_hex(0xFF0000), 0);
+                lv_timer_create([](lv_timer_t* timer) {
+                    lv_obj_t* header = (lv_obj_t*)timer->user_data;
+                    lv_obj_set_style_bg_color(header, lv_color_hex(0x3A3A3A), 0);
+                    lv_timer_del(timer);
+                }, 200, header);
+            } else {
+                lv_obj_t* old_menu = colorMenu;
+                colorMenu = nullptr;
+                currentEntry += selectedPantsColors + ",";
+                DEBUG_PRINTF("Transitioning to shoes menu with Pants: %s\n", selectedPantsColors.c_str());
+                createColorMenuShoes();
+                if (old_menu && old_menu != lv_scr_act()) {
+                    lv_obj_del_async(old_menu);
+                }
+            }
+            xSemaphoreGive(xGuiSemaphore);
+        }
+    }, LV_EVENT_CLICKED, NULL);
+    DEBUG_PRINT("Next button created");
+
+    lv_scr_load(colorMenu);
+    DEBUG_PRINT("Pants color menu loaded");
 }
 
 void createColorMenuShoes() {
     DEBUG_PRINT("Creating Shoes Color Menu");
-    
-    lv_obj_t* newMenu = lv_obj_create(NULL);
-    lv_obj_add_style(newMenu, &style_screen, 0);
-    DEBUG_PRINTF("New color menu created: %p\n", newMenu);
-    addWifiIndicator(newMenu);
-    addBatteryIndicator(newMenu);
-    lv_timer_handler(); // Process any pending UI updates
 
-    lv_obj_t *header = lv_obj_create(newMenu);
-    lv_obj_set_size(header, 320, 50);
-    lv_obj_set_style_bg_color(header, lv_color_hex(0x333333), 0);
-    lv_obj_t *title = lv_label_create(header);
-    lv_label_set_text(title, "Select Shoes Color");
-    lv_obj_add_style(title, &style_title, 0);
-    lv_obj_align(title, LV_ALIGN_CENTER, 0, 0);
+    if (colorMenu) {
+        DEBUG_PRINTF("Cleaning existing color menu: 0x%08x\n", (unsigned)colorMenu);
+        lv_obj_del_async(colorMenu);
+        colorMenu = nullptr;
+    }
+    shirt_next_btn = nullptr;
+    pants_next_btn = nullptr;
+    shoes_next_btn = nullptr;
+    current_scroll_obj = nullptr;
 
-    lv_obj_t *container = lv_obj_create(newMenu);
-    lv_obj_set_size(container, 300, 150);
-    lv_obj_align(container, LV_ALIGN_TOP_MID, 0, 60);
-    lv_obj_set_style_bg_opa(container, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_pad_all(container, 5, 0);
-    lv_obj_set_style_pad_row(container, 8, 0);
-    lv_obj_set_style_pad_column(container, 8, 0);
-    
-    // Set up grid layout on container with fixed sizes
-    static lv_coord_t col_dsc[] = {90, 90, 90, LV_GRID_TEMPLATE_LAST};
-    static lv_coord_t row_dsc[] = {40, 40, 40, LV_GRID_TEMPLATE_LAST};
-    
-    lv_obj_set_grid_dsc_array(container, col_dsc, row_dsc);
-    lv_obj_set_layout(container, LV_LAYOUT_GRID);
-    lv_obj_set_scroll_dir(container, LV_DIR_VER);
-    lv_obj_set_scrollbar_mode(container, LV_SCROLLBAR_MODE_ACTIVE);
-    lv_obj_add_flag(container, LV_OBJ_FLAG_SCROLL_MOMENTUM | LV_OBJ_FLAG_SCROLLABLE);
-    current_scroll_obj = container;
+    DEBUG_PRINTF("Free heap before creation: %d bytes\n", heap_caps_get_free_size(MALLOC_CAP_8BIT));
+    colorMenu = lv_obj_create(NULL);
+    if (!colorMenu) {
+        DEBUG_PRINT("Failed to create colorMenu");
+        return;
+    }
+    DEBUG_PRINTF("New color menu created: 0x%08x\n", (unsigned)colorMenu);
+    lv_obj_add_style(colorMenu, &style_screen, 0);
+    lv_obj_set_style_bg_color(colorMenu, lv_color_hex(0x1A1A1A), 0);
+    lv_obj_set_style_bg_grad_color(colorMenu, lv_color_hex(0x2A2A2A), 0);
+    lv_obj_set_style_bg_grad_dir(colorMenu, LV_GRAD_DIR_VER, 0);
+    lv_obj_set_style_bg_opa(colorMenu, LV_OPA_COVER, 0);
 
-    static lv_point_t last_point = {0, 0};
+    // Header
+    lv_obj_t* header = lv_obj_create(colorMenu);
+    lv_obj_set_size(header, SCREEN_WIDTH - 20, 40);
+    lv_obj_align(header, LV_ALIGN_TOP_MID, 0, 5);
+    lv_obj_set_style_bg_color(header, lv_color_hex(0x3A3A3A), 0);
+    lv_obj_set_style_bg_opa(header, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(header, 10, 0);
+    lv_obj_set_style_border_width(header, 0, 0);
+    lv_obj_t* title = lv_label_create(header);
+    lv_label_set_text(title, "Shoes Color");
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_center(title);
 
-    lv_obj_add_event_cb(container, [](lv_event_t *e) {
-        lv_indev_t *indev = lv_indev_get_act();
-        lv_indev_get_point(indev, &last_point);
-    }, LV_EVENT_PRESSED, NULL);
+    // Grid of color buttons
+    lv_obj_t* grid = lv_obj_create(colorMenu);
+    lv_obj_set_size(grid, SCREEN_WIDTH - 20, SCREEN_HEIGHT - 100);
+    lv_obj_align(grid, LV_ALIGN_TOP_MID, 0, 50);
+    lv_obj_set_style_bg_opa(grid, LV_OPA_TRANSP, 0);
+    lv_obj_set_layout(grid, LV_LAYOUT_GRID);
+    static lv_coord_t col_dsc[] = {140, 140, LV_GRID_TEMPLATE_LAST}; // 2 columns
+    static lv_coord_t row_dsc[] = {60, 60, 60, 60, LV_GRID_TEMPLATE_LAST}; // 4 rows
+    lv_obj_set_grid_dsc_array(grid, col_dsc, row_dsc);
+    lv_obj_set_style_pad_all(grid, 5, 0);
 
-    lv_obj_add_event_cb(container, [](lv_event_t *e) {
-        lv_obj_t *container = (lv_obj_t*)lv_event_get_user_data(e);
-        lv_indev_t *indev = lv_indev_get_act();
-        lv_point_t curr_point;
-        lv_indev_get_point(indev, &curr_point);
-        lv_coord_t delta_y = last_point.y - curr_point.y;
-        lv_obj_scroll_by(container, 0, delta_y, LV_ANIM_OFF);
-        last_point = curr_point;
-    }, LV_EVENT_PRESSING, container);
+    // Color mappings
+    struct ColorInfo {
+        const char* name;
+        uint32_t color;
+    };
+    ColorInfo colorMap[] = {
+        {"Red", 0xFF0000}, {"Orange", 0xFFA500}, {"Yellow", 0xFFFF00},
+        {"Green", 0x00FF00}, {"Blue", 0x0000FF}, {"Purple", 0x800080},
+        {"Black", 0x000000}, {"White", 0xFFFFFF}
+    };
+    const int numColors = sizeof(colorMap) / sizeof(colorMap[0]);
+    DEBUG_PRINTF("Creating %d shoes color buttons\n", numColors);
 
-    int numShoeColors = sizeof(shoeColors) / sizeof(shoeColors[0]);
-    DEBUG_PRINTF("Creating %d shoe color buttons\n", numShoeColors);
+    // Array to track selected buttons
+    lv_obj_t* color_buttons[numColors] = {nullptr};
+    selectedShoesColors = ""; // Reset selection
 
-    for (int i = 0; i < numShoeColors; i++) {
-        lv_obj_t *btn = lv_btn_create(container);
-        lv_obj_set_size(btn, 90, 40);
-        lv_obj_add_style(btn, &style_btn, 0);
-        lv_obj_add_style(btn, &style_btn_pressed, LV_STATE_PRESSED);
-        lv_obj_set_grid_cell(btn, LV_GRID_ALIGN_STRETCH, i % 3, 1, LV_GRID_ALIGN_STRETCH, i / 3, 1);
-        lv_obj_set_user_data(btn, (void*)i);
-        
-        lv_obj_t *label = lv_label_create(btn);
-        lv_label_set_text(label, shoeColors[i]);
+    for (int i = 0; i < numColors; i++) {
+        lv_obj_t* btn = lv_btn_create(grid);
+        lv_obj_set_grid_cell(btn, LV_GRID_ALIGN_STRETCH, i % 2, 1, LV_GRID_ALIGN_STRETCH, i / 2, 1);
+        lv_obj_set_style_bg_color(btn, lv_color_hex(colorMap[i].color), 0);
+        lv_obj_set_style_bg_opa(btn, LV_OPA_80, 0); // Faded by default
+        lv_obj_set_style_radius(btn, 15, 0);
+        lv_obj_set_style_border_width(btn, 0, 0);
+        lv_obj_set_style_shadow_width(btn, 5, 0);
+        lv_obj_set_style_shadow_color(btn, lv_color_hex(0x000000), 0);
+        lv_obj_set_style_shadow_opa(btn, LV_OPA_20, 0);
+
+        lv_obj_t* label = lv_label_create(btn);
+        lv_label_set_text(label, colorMap[i].name);
+        lv_obj_set_style_text_font(label, &lv_font_montserrat_16, 0);
+        lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
         lv_obj_center(label);
 
-        lv_obj_add_event_cb(btn, [](lv_event_t *e) {
-            lv_obj_t *btn = lv_event_get_target(e);
-            int idx = (int)lv_obj_get_user_data(btn);
-            bool is_selected = lv_obj_has_state(btn, LV_STATE_USER_1);
+        color_buttons[i] = btn;
 
-            if (!is_selected) {
-                lv_obj_add_state(btn, LV_STATE_USER_1);
-                lv_obj_set_style_border_width(btn, 3, LV_PART_MAIN);
-                lv_obj_set_style_border_color(btn, lv_color_hex(0xFFFF00), LV_PART_MAIN);
-                if (!selectedShoesColors.isEmpty()) selectedShoesColors += "+";
-                selectedShoesColors += shoeColors[idx];
-            } else {
-                lv_obj_clear_state(btn, LV_STATE_USER_1);
-                lv_obj_set_style_border_width(btn, 1, LV_PART_MAIN);
-                lv_obj_set_style_border_color(btn, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
-                int pos = selectedShoesColors.indexOf(shoeColors[idx]);
-                if (pos >= 0) {
-                    int nextPlus = selectedShoesColors.indexOf("+", pos);
-                    if (nextPlus >= 0) {
-                        selectedShoesColors.remove(pos, nextPlus - pos + 1);
-                    } else {
-                        if (pos > 0) selectedShoesColors.remove(pos - 1, String(shoeColors[idx]).length() + 1);
-                        else selectedShoesColors.remove(pos, String(shoeColors[idx]).length());
+        lv_obj_add_event_cb(btn, [](lv_event_t* e) {
+            lv_obj_t* btn = lv_event_get_target(e);
+            lv_obj_t* label = lv_obj_get_child(btn, 0);
+            if (label) {
+                String color = lv_label_get_text(label);
+                bool is_selected = lv_obj_get_style_border_width(btn, 0) > 0;
+                if (is_selected) {
+                    // Deselect
+                    lv_obj_set_size(btn, 140, 60); // Reset size
+                    lv_obj_set_style_bg_opa(btn, LV_OPA_80, 0);
+                    lv_obj_set_style_border_width(btn, 0, 0);
+                    lv_obj_set_style_shadow_width(btn, 5, 0);
+                    lv_obj_set_style_shadow_opa(btn, LV_OPA_20, 0);
+                    lv_obj_set_style_shadow_color(btn, lv_color_hex(0x000000), 0);
+                    if (selectedShoesColors.indexOf(color) != -1) {
+                        selectedShoesColors.replace(color + "+", "");
+                        selectedShoesColors.replace("+" + color, "");
+                        selectedShoesColors.replace(color, "");
                     }
+                } else {
+                    // Select
+                    lv_obj_set_size(btn, 150, 65); // Slightly larger
+                    lv_obj_set_style_bg_opa(btn, LV_OPA_100, 0);
+                    lv_obj_set_style_border_width(btn, 4, 0);
+                    lv_obj_set_style_border_color(btn, lv_color_hex(0x00FFFF), 0); // Cyan outline
+                    lv_obj_set_style_shadow_width(btn, 12, 0);
+                    lv_obj_set_style_shadow_opa(btn, LV_OPA_60, 0);
+                    lv_obj_set_style_shadow_color(btn, lv_color_hex(0x00FFFF), 0); // Cyan glow
+                    if (!selectedShoesColors.isEmpty()) selectedShoesColors += "+";
+                    selectedShoesColors += color;
                 }
-            }
-            
-            DEBUG_PRINTF("Selected shoe colors: %s\n", selectedShoesColors.c_str());
-            
-            if (!selectedShoesColors.isEmpty()) {
-                if (shoes_next_btn == nullptr) {
-                    shoes_next_btn = lv_btn_create(lv_obj_get_parent(lv_obj_get_parent(btn)));
-                    lv_obj_align(shoes_next_btn, LV_ALIGN_BOTTOM_RIGHT, -10, -10);
-                    lv_obj_set_size(shoes_next_btn, 100, 40);
-                    lv_obj_add_style(shoes_next_btn, &style_btn, 0);
-                    lv_obj_add_style(shoes_next_btn, &style_btn_pressed, LV_STATE_PRESSED);
-                    
-                    lv_obj_t* next_label = lv_label_create(shoes_next_btn);
-                    lv_label_set_text(next_label, "Next " LV_SYMBOL_RIGHT);
-                    lv_obj_center(next_label);
-                    
-                    lv_obj_add_event_cb(shoes_next_btn, [](lv_event_t* e) {
-                        currentEntry += selectedShoesColors + ",";
-                        DEBUG_PRINTF("Current entry: %s\n", currentEntry.c_str());
-                        delay(100);
-                        DEBUG_PRINT("Transitioning to item menu");
-                        createItemMenu();
-                        if (colorMenu && colorMenu != lv_scr_act()) {
-                            DEBUG_PRINTF("Cleaning old color menu: %p\n", colorMenu);
-                            lv_obj_del_async(colorMenu);
-                            colorMenu = nullptr;
-                        }
-                        DEBUG_PRINT("Shoes menu transition complete");
-                    }, LV_EVENT_CLICKED, NULL);
-                }
+                DEBUG_PRINTF("Shoes colors updated: %s\n", selectedShoesColors.c_str());
             }
         }, LV_EVENT_CLICKED, NULL);
+
+        DEBUG_PRINTF("Created color button %d: %s\n", i, colorMap[i].name);
     }
 
-    for (int i = 0; i < numShoeColors; i++) {
-        lv_obj_t *btn = lv_obj_get_child(container, i);
-        if (btn && lv_obj_check_type(btn, &lv_btn_class)) {
-            uint32_t color_hex = 0x4A4A4A; // Default gray
-            if (strcmp(shoeColors[i], "White") == 0) color_hex = 0xFFFFFF;
-            else if (strcmp(shoeColors[i], "Black") == 0) color_hex = 0x000000;
-            else if (strcmp(shoeColors[i], "Red") == 0) color_hex = 0xFF0000;
-            else if (strcmp(shoeColors[i], "Orange") == 0) color_hex = 0xFFA500;
-            else if (strcmp(shoeColors[i], "Yellow") == 0) color_hex = 0xFFFF00;
-            else if (strcmp(shoeColors[i], "Green") == 0) color_hex = 0x00FF00;
-            else if (strcmp(shoeColors[i], "Blue") == 0) color_hex = 0x0000FF;
-            else if (strcmp(shoeColors[i], "Purple") == 0) color_hex = 0x800080;
-            else if (strcmp(shoeColors[i], "Brown") == 0) color_hex = 0x8B4513;
-            else if (strcmp(shoeColors[i], "Grey") == 0) color_hex = 0x808080;
-            else if (strcmp(shoeColors[i], "Tan") == 0) color_hex = 0xD2B48C;
-            
-            lv_obj_set_style_bg_color(btn, lv_color_hex(color_hex), 0);
-            lv_obj_set_style_bg_color(btn, lv_color_hex(color_hex), LV_STATE_PRESSED);
-            
-            uint32_t text_color = 0xFFFFFF; // Default white text
-            if (strcmp(shoeColors[i], "White") == 0 || 
-                strcmp(shoeColors[i], "Yellow") == 0 ||
-                strcmp(shoeColors[i], "Tan") == 0) {
-                text_color = 0x000000; // Black text for light backgrounds
-            }
-            
-            lv_obj_t *label = lv_obj_get_child(btn, 0);
-            if (label && lv_obj_check_type(label, &lv_label_class)) {
-                lv_obj_set_style_text_color(label, lv_color_hex(text_color), 0);
-            }
-        }
-    }
-
-    lv_obj_t *back_btn = lv_btn_create(newMenu);
+    // Back Button
+    lv_obj_t* back_btn = lv_btn_create(colorMenu);
+    lv_obj_set_size(back_btn, 120, 40);
     lv_obj_align(back_btn, LV_ALIGN_BOTTOM_LEFT, 10, -10);
-    lv_obj_set_size(back_btn, 100, 40);
-    lv_obj_add_style(back_btn, &style_btn, 0);
-    lv_obj_add_style(back_btn, &style_btn_pressed, LV_STATE_PRESSED);
-    
-    lv_obj_t *back_label = lv_label_create(back_btn);
-    lv_label_set_text(back_label, LV_SYMBOL_LEFT " Back");
+    lv_obj_set_style_bg_color(back_btn, lv_color_hex(0x4A4A4A), 0);
+    lv_obj_set_style_bg_opa(back_btn, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(back_btn, lv_color_hex(0x6A6A6A), LV_STATE_PRESSED);
+    lv_obj_set_style_radius(back_btn, 20, 0);
+    lv_obj_set_style_shadow_width(back_btn, 5, 0);
+    lv_obj_set_style_shadow_color(back_btn, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_shadow_opa(back_btn, LV_OPA_20, 0);
+    lv_obj_t* back_label = lv_label_create(back_btn);
+    lv_label_set_text(back_label, "Back " LV_SYMBOL_LEFT);
+    lv_obj_set_style_text_font(back_label, &lv_font_montserrat_16, 0);
     lv_obj_center(back_label);
-    
-    lv_obj_add_event_cb(back_btn, [](lv_event_t *e) {
-        delay(100);
-        DEBUG_PRINT("Returning to pants menu");
-        
-        shoes_next_btn = nullptr;
-        
-        createColorMenuPants();
-        if (colorMenu && colorMenu != lv_scr_act()) {
-            DEBUG_PRINTF("Cleaning old color menu: %p\n", colorMenu);
-            lv_obj_del_async(colorMenu);
+    lv_obj_add_event_cb(back_btn, [](lv_event_t* e) {
+        if (xSemaphoreTake(xGuiSemaphore, (TickType_t)10) == pdTRUE) {
+            lv_obj_t* old_menu = colorMenu;
             colorMenu = nullptr;
+            selectedShoesColors = "";
+            createColorMenuPants();
+            if (old_menu && old_menu != lv_scr_act()) {
+                lv_obj_del_async(old_menu);
+            }
+            xSemaphoreGive(xGuiSemaphore);
         }
     }, LV_EVENT_CLICKED, NULL);
-    
-    lv_scr_load(newMenu);
-    
-    if (colorMenu && colorMenu != newMenu) {
-        DEBUG_PRINTF("Cleaning existing color menu: %p\n", colorMenu);
-        lv_obj_del_async(colorMenu);
-    }
-    
-    colorMenu = newMenu;
+    DEBUG_PRINT("Back button created");
+
+    // Next Button
+    shoes_next_btn = lv_btn_create(colorMenu);
+    lv_obj_set_size(shoes_next_btn, 120, 40);
+    lv_obj_align(shoes_next_btn, LV_ALIGN_BOTTOM_RIGHT, -10, -10);
+    lv_obj_set_style_bg_color(shoes_next_btn, lv_color_hex(0x4A4A4A), 0);
+    lv_obj_set_style_bg_opa(shoes_next_btn, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(shoes_next_btn, lv_color_hex(0x6A6A6A), LV_STATE_PRESSED);
+    lv_obj_set_style_radius(shoes_next_btn, 20, 0);
+    lv_obj_set_style_shadow_width(shoes_next_btn, 5, 0);
+    lv_obj_set_style_shadow_color(shoes_next_btn, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_shadow_opa(shoes_next_btn, LV_OPA_20, 0);
+    lv_obj_t* next_label = lv_label_create(shoes_next_btn);
+    lv_label_set_text(next_label, "Next " LV_SYMBOL_RIGHT);
+    lv_obj_set_style_text_font(next_label, &lv_font_montserrat_16, 0);
+    lv_obj_center(next_label);
+    lv_obj_add_event_cb(shoes_next_btn, [](lv_event_t* e) {
+        if (xSemaphoreTake(xGuiSemaphore, (TickType_t)10) == pdTRUE) {
+            if (selectedShoesColors.isEmpty()) {
+                lv_obj_t* header = lv_obj_get_child(lv_scr_act(), 0);
+                lv_obj_set_style_bg_color(header, lv_color_hex(0xFF0000), 0);
+                lv_timer_create([](lv_timer_t* timer) {
+                    lv_obj_t* header = (lv_obj_t*)timer->user_data;
+                    lv_obj_set_style_bg_color(header, lv_color_hex(0x3A3A3A), 0);
+                    lv_timer_del(timer);
+                }, 200, header);
+            } else {
+                lv_obj_t* old_menu = colorMenu;
+                colorMenu = nullptr;
+                currentEntry += selectedShoesColors + ",";
+                DEBUG_PRINTF("Transitioning to next menu with Shoes: %s\n", selectedShoesColors.c_str());
+                // Replace with your next menu function, e.g., createSummaryMenu()
+                createItemMenu(); // Placeholder - adjust as needed
+                if (old_menu && old_menu != lv_scr_act()) {
+                    lv_obj_del_async(old_menu);
+                }
+            }
+            xSemaphoreGive(xGuiSemaphore);
+        }
+    }, LV_EVENT_CLICKED, NULL);
+    DEBUG_PRINT("Next button created");
+
+    lv_scr_load(colorMenu);
+    DEBUG_PRINT("Shoes color menu loaded");
 }
 
 void createItemMenu() {
@@ -1613,9 +2066,6 @@ void createItemMenu() {
     lv_scr_load(itemMenu);
     DEBUG_PRINTF("Item menu created: %p\n", itemMenu);
     
-    // Force immediate update of indicators
-    addWifiIndicator(itemMenu);
-    addBatteryIndicator(itemMenu);
     lv_timer_handler(); // Process any pending UI updates
 
     lv_obj_t *header = lv_obj_create(itemMenu);
@@ -1648,164 +2098,88 @@ void createItemMenu() {
         lv_obj_t *label = lv_label_create(btn);
         lv_label_set_text(label, items[i]);
         lv_obj_center(label);
-        lv_obj_add_event_cb(btn, [](lv_event_t* e) {
-        lv_obj_t* btn = lv_event_get_target(e);
-        currentEntry += String(lv_label_get_text(lv_obj_get_child(btn, 0))); // Append item
-        delay(100);
-        createConfirmScreen();
+        lv_obj_add_event_cb(btn, [](lv_event_t *e) {
+            currentEntry += String(lv_label_get_text(lv_obj_get_child(lv_event_get_target(e), 0)));
+            delay(100);
+            createConfirmScreen();
         }, LV_EVENT_CLICKED, NULL);
     }
 }
 
 void createConfirmScreen() {
+    DEBUG_PRINT("Creating confirmation screen");
+    
+    // Clean up any existing confirm screen first
     if (confirmScreen) {
         DEBUG_PRINT("Cleaning existing confirm screen");
         lv_obj_del(confirmScreen);
         confirmScreen = nullptr;
+        lv_timer_handler(); // Process deletion immediately
     }
+    
+    // Create new confirmation screen
     confirmScreen = lv_obj_create(NULL);
+    if (!confirmScreen) {
+        DEBUG_PRINT("Failed to create confirmation screen");
+        createMainMenu(); // Fallback to main menu
+        return;
+    }
+    
     lv_obj_add_style(confirmScreen, &style_screen, 0);
     lv_scr_load(confirmScreen);
+    DEBUG_PRINTF("Confirm screen created: %p\n", confirmScreen);
+    
+    lv_timer_handler(); // Process any pending UI updates
 
-    addWifiIndicator(confirmScreen);
-    addBatteryIndicator(confirmScreen);
-
-    lv_obj_t* header = lv_obj_create(confirmScreen);
+    lv_obj_t *header = lv_obj_create(confirmScreen);
     lv_obj_set_size(header, 320, 50);
     lv_obj_set_style_bg_color(header, lv_color_hex(0x333333), 0);
-    lv_obj_t* title = lv_label_create(header);
+    lv_obj_t *title = lv_label_create(header);
     lv_label_set_text(title, "Confirm Entry");
     lv_obj_add_style(title, &style_title, 0);
     lv_obj_align(title, LV_ALIGN_CENTER, 0, 0);
 
-    // Add entry display
-    String formattedEntry = getFormattedEntry(currentEntry);
-    lv_obj_t* entry_label = lv_label_create(confirmScreen);
-    lv_obj_set_style_text_font(entry_label, &lv_font_montserrat_14, 0);
-    lv_obj_set_width(entry_label, 280); // Wrap text within screen width
-    lv_label_set_long_mode(entry_label, LV_LABEL_LONG_WRAP);
-    lv_label_set_text(entry_label, formattedEntry.c_str());
-    lv_obj_align(entry_label, LV_ALIGN_TOP_MID, 0, 60);
+    // Create a local copy of the formatted entry to avoid memory issues
+    String formattedEntryStr = getFormattedEntry(currentEntry);
+    
+    lv_obj_t *preview = lv_label_create(confirmScreen);
+    lv_label_set_text(preview, formattedEntryStr.c_str());
+    lv_obj_add_style(preview, &style_text, 0);
+    lv_obj_set_size(preview, 280, 140);
+    lv_obj_align(preview, LV_ALIGN_TOP_MID, 0, 60);
+    lv_obj_set_style_bg_color(preview, lv_color_hex(0x4A4A4A), 0);
+    lv_obj_set_style_pad_all(preview, 10, 0);
 
-    lv_obj_t* confirm_btn = lv_btn_create(confirmScreen);
-    lv_obj_set_size(confirm_btn, 100, 40);
-    lv_obj_align(confirm_btn, LV_ALIGN_BOTTOM_RIGHT, -10, -10);
-    lv_obj_add_style(confirm_btn, &style_btn, 0);
-    lv_obj_add_style(confirm_btn, &style_btn_pressed, LV_STATE_PRESSED);
-    lv_obj_t* confirm_label = lv_label_create(confirm_btn);
+    lv_obj_t *btn_container = lv_obj_create(confirmScreen);
+    lv_obj_remove_style_all(btn_container);
+    lv_obj_set_size(btn_container, 320, 50);
+    lv_obj_align(btn_container, LV_ALIGN_BOTTOM_MID, 0, -10);
+    lv_obj_set_flex_flow(btn_container, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(btn_container, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+    // Create a local copy of the current entry for the event callbacks
+    String entryToSave = currentEntry;
+    
+    lv_obj_t *btn_confirm = lv_btn_create(btn_container);
+    lv_obj_set_size(btn_confirm, 120, 40);
+    lv_obj_add_style(btn_confirm, &style_btn, 0);
+    lv_obj_add_style(btn_confirm, &style_btn_pressed, LV_STATE_PRESSED);
+    lv_obj_t *confirm_label = lv_label_create(btn_confirm);
     lv_label_set_text(confirm_label, "Confirm");
     lv_obj_center(confirm_label);
-
-    lv_obj_add_event_cb(confirm_btn, [](lv_event_t* e) {
-        Serial.println("Confirm clicked");
-        saveEntry(currentEntry);
-        delay(100);
+    
+    // Store a copy of the current entry in user data to avoid using the global variable
+    lv_obj_set_user_data(btn_confirm, (void*)strdup(formattedEntryStr.c_str()));
+    
+    lv_obj_add_event_cb(btn_confirm, [](lv_event_t *e) {
+        lv_obj_t *btn = lv_event_get_target(e);
+        saveEntry(currentEntry); // Save raw entry
         createMainMenu();
-        if (confirmScreen && confirmScreen != lv_scr_act()) {
-            DEBUG_PRINTF("Cleaning existing confirm screen: %p\n", confirmScreen);
-            lv_obj_del_async(confirmScreen);
-            confirmScreen = nullptr;
-        }
+        DEBUG_PRINT("Returning to main menu after confirmation");
     }, LV_EVENT_CLICKED, NULL);
-
-    lv_obj_t* back_btn = lv_btn_create(confirmScreen);
-    lv_obj_set_size(back_btn, 100, 40);
-    lv_obj_align(back_btn, LV_ALIGN_BOTTOM_LEFT, 10, -10);
-    lv_obj_add_style(back_btn, &style_btn, 0);
-    lv_obj_add_style(back_btn, &style_btn_pressed, LV_STATE_PRESSED);
-    lv_obj_t* back_label = lv_label_create(back_btn);
-    lv_label_set_text(back_label, LV_SYMBOL_LEFT " Back");
-    lv_obj_center(back_label);
-    lv_obj_add_event_cb(back_btn, [](lv_event_t* e) {
-        delay(100);
-        createItemMenu();
-        if (confirmScreen && confirmScreen != lv_scr_act()) {
-            lv_obj_del_async(confirmScreen);
-            confirmScreen = nullptr;
-        }
-    }, LV_EVENT_CLICKED, NULL);
-}
-
-void scanNetworks() {
-    // Don't start a new scan if one is already in progress
-    if (wifiScanInProgress) {
-        DEBUG_PRINT("WiFi scan already in progress, ignoring request");
-        return;
-    }
     
-    // Check if WiFi is enabled in settings
-    if (!wifiEnabled) {
-        DEBUG_PRINT("WiFi is disabled in settings, cannot scan");
-        updateStatus("WiFi is disabled in settings", 0xFF9900);
-        
-        // If we're on the WiFi screen, update the status label
-        if (wifi_status_label && lv_obj_is_valid(wifi_status_label)) {
-            lv_label_set_text(wifi_status_label, "WiFi is disabled. Enable WiFi in Settings first.");
-        }
-        return;
-    }
-    
-    // Check WiFi status using WiFiManager
-    if (!wifiManager.isInitialized()) {
-        DEBUG_PRINT("WiFi module not initialized");
-        updateStatus("WiFi module not found", 0xFF0000);
-        return;
-    } else if (wifiManager.isConnected()) {
-        DEBUG_PRINTF("WiFi connected to %s\n", WiFi.SSID().c_str());
-    } else {
-        DEBUG_PRINTF("WiFi status: %d\n", WiFi.status());
-    }
-    
-    // Clear previous list
-    if (wifi_list != nullptr) {
-        lv_obj_clean(wifi_list);
-    }
-    
-    // Create spinner if it doesn't exist
-    if (g_spinner == nullptr) {
-        g_spinner = lv_spinner_create(wifi_screen, 1000, 60);
-        lv_obj_set_size(g_spinner, 50, 50);
-        lv_obj_align(g_spinner, LV_ALIGN_CENTER, 0, 0);
-    }
-    
-    // Update status
-    updateStatus("Scanning for WiFi networks...", 0xFFFFFF);
-    
-    // Start WiFi scan using WiFiManager
-    DEBUG_PRINT("Starting WiFi scan");
-    
-    // Start the scan using WiFiManager
-    bool scanStarted = wifiManager.startScan();
-    
-    if (!scanStarted) {
-        DEBUG_PRINT("WiFi scan failed to start");
-        updateStatus("WiFi scan failed", 0xFF0000);
-        
-        // Clean up
-        if (g_spinner != nullptr) {
-            lv_obj_del(g_spinner);
-            g_spinner = nullptr;
-        }
-        return;
-    }
-    
-    // Set scan in progress flag and record start time
-    wifiScanInProgress = true;
-    lastScanStartTime = millis();
-    
-    // Create timer to check scan status
-    if (scan_timer != nullptr) {
-        lv_timer_del(scan_timer);
-    }
-    
-    // Reset batch processing variables
-    currentBatch = 0;
-    totalNetworksFound = 0;
-    
-    // If we have credentials, try to reconnect after scan
-    if (strlen(selected_ssid) > 0 && strlen(selected_password) > 0) {
-        DEBUG_PRINTF("Will reconnect to %s after scan\n", selected_ssid);
-    }
+    // Process UI updates to ensure everything is properly initialized
+    lv_timer_handler();
 }
 
 // Callback for WiFi button event
@@ -1995,103 +2369,202 @@ void createWiFiManagerScreen() {
     }
     wifi_manager_screen = lv_obj_create(NULL);
     lv_obj_add_style(wifi_manager_screen, &style_screen, 0);
+    lv_obj_set_style_bg_color(wifi_manager_screen, lv_color_hex(0x1A1A1A), 0); // Dark gray background
+    lv_obj_set_style_bg_opa(wifi_manager_screen, LV_OPA_COVER, 0);
+    lv_obj_add_flag(wifi_manager_screen, LV_OBJ_FLAG_SCROLLABLE); // Screen scrolls if needed
+    current_scroll_obj = wifi_manager_screen;
 
-    lv_obj_t* header = lv_obj_create(wifi_manager_screen);
-    lv_obj_set_size(header, SCREEN_WIDTH, 50);
+    // Back Button (Top-Left)
+    lv_obj_t* back_btn = lv_btn_create(wifi_manager_screen);
+    lv_obj_set_size(back_btn, 60, 40);
+    lv_obj_align(back_btn, LV_ALIGN_TOP_LEFT, 10, 10);
+    lv_obj_set_style_bg_color(back_btn, lv_color_hex(0x333333), 0); // Darker gray button
+    lv_obj_set_style_radius(back_btn, 5, 0);
+    lv_obj_add_style(back_btn, &style_btn, 0);
+    lv_obj_add_style(back_btn, &style_btn_pressed, LV_STATE_PRESSED);
+    lv_obj_t* back_label = lv_label_create(back_btn);
+    lv_label_set_text(back_label, LV_SYMBOL_LEFT); // Left arrow icon
+    lv_obj_center(back_label);
+    lv_obj_set_style_text_color(back_label, lv_color_hex(0xFFFFFF), 0); // White text
+    lv_obj_add_event_cb(back_btn, [](lv_event_t* e) {
+        createSettingsScreen();
+    }, LV_EVENT_CLICKED, NULL);
+
+    // Title
+    lv_obj_t* title = lv_label_create(wifi_manager_screen);
+    lv_label_set_text(title, "WiFi Manager");
+    lv_obj_add_style(title, &style_title, 0);
+    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0); // White text
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 20);
+
+    // Saved Networks Label
+    lv_obj_t* saved_label = lv_label_create(wifi_manager_screen);
+    lv_label_set_text(saved_label, "Saved Networks");
+    lv_obj_set_style_text_color(saved_label, lv_color_hex(0xBBBBBB), 0); // Light gray text
+    lv_obj_set_style_text_font(saved_label, &lv_font_montserrat_16, 0);
+    lv_obj_align(saved_label, LV_ALIGN_TOP_LEFT, 20, 60); // Aligned with cards
+
+    // Define styles for network items
+    static lv_style_t style_network;
+    lv_style_init(&style_network);
+    lv_style_set_bg_color(&style_network, lv_color_hex(0x2D2D2D)); // Dark gray for cards
+    lv_style_set_bg_opa(&style_network, LV_OPA_COVER);
+    lv_style_set_border_color(&style_network, lv_color_hex(0x505050)); // Light gray border
+    lv_style_set_border_width(&style_network, 1);
+    lv_style_set_radius(&style_network, 5);
+    lv_style_set_shadow_color(&style_network, lv_color_hex(0x000000)); // Black shadow
+    lv_style_set_shadow_width(&style_network, 10);
+    lv_style_set_shadow_spread(&style_network, 2);
+    lv_style_set_pad_all(&style_network, 5);
+
+    static lv_style_t style_network_pressed;
+    lv_style_init(&style_network_pressed);
+    lv_style_set_bg_color(&style_network_pressed, lv_color_hex(0x404040)); // Lighter gray when pressed
+    lv_style_set_bg_opa(&style_network_pressed, LV_OPA_COVER);
+
+    // Populate Saved Networks
+    auto savedNetworks = wifiManager.getSavedNetworks();
+    int y_offset = 90; // Start below the "Saved Networks" label
+    for (size_t i = 0; i < savedNetworks.size(); i++) {
+        lv_obj_t* network_item = lv_obj_create(wifi_manager_screen);
+        lv_obj_set_size(network_item, SCREEN_WIDTH - 40, 60);
+        lv_obj_set_pos(network_item, 20, y_offset); // Consistent left margin
+        lv_obj_add_style(network_item, &style_network, 0);
+        lv_obj_add_style(network_item, &style_network_pressed, LV_STATE_PRESSED);
+
+        // SSID Label
+        lv_obj_t* ssid_label = lv_label_create(network_item);
+        lv_label_set_text(ssid_label, savedNetworks[i].ssid.c_str());
+        lv_obj_align(ssid_label, LV_ALIGN_LEFT_MID, 5, 0);
+        lv_obj_set_style_text_color(ssid_label, lv_color_hex(0xFFFFFF), 0); // White text
+        lv_obj_set_style_text_font(ssid_label, &lv_font_montserrat_16, 0); // Consistent font
+
+        // Status Indicator
+        if (savedNetworks[i].connected) {
+            lv_obj_t* status_icon = lv_label_create(network_item);
+            lv_label_set_text(status_icon, LV_SYMBOL_OK); // Checkmark for connected
+            lv_obj_set_style_text_color(status_icon, lv_color_hex(0x00CC00), 0); // Green
+            lv_obj_set_style_text_font(status_icon, &lv_font_montserrat_16, 0); // Match font size
+            lv_obj_align(status_icon, LV_ALIGN_RIGHT_MID, -5, 0);
+        }
+
+        // Clickable area
+        lv_obj_add_event_cb(network_item, [](lv_event_t* e) {
+            lv_obj_t* item = lv_event_get_target(e);
+            size_t idx = (size_t)lv_obj_get_user_data(item);
+            auto savedNetworks = wifiManager.getSavedNetworks();
+            if (idx < savedNetworks.size()) {
+                createNetworkDetailsScreen(savedNetworks[idx].ssid);
+            }
+        }, LV_EVENT_CLICKED, (void*)i);
+        lv_obj_set_user_data(network_item, (void*)i);
+
+        y_offset += 70; // Spacing between cards
+    }
+
+    // Scan Button (Top-Right)
+    lv_obj_t* scan_btn = lv_btn_create(wifi_manager_screen);
+    lv_obj_set_size(scan_btn, 60, 40);
+    lv_obj_align(scan_btn, LV_ALIGN_TOP_RIGHT, -10, 10);
+    lv_obj_set_style_bg_color(scan_btn, lv_color_hex(0x333333), 0); // Darker gray button
+    lv_obj_set_style_radius(scan_btn, 5, 0);
+    lv_obj_add_style(scan_btn, &style_btn, 0);
+    lv_obj_add_style(scan_btn, &style_btn_pressed, LV_STATE_PRESSED);
+    lv_obj_t* scan_label = lv_label_create(scan_btn);
+    lv_label_set_text(scan_label, LV_SYMBOL_REFRESH); // Search icon
+    lv_obj_center(scan_label);
+    lv_obj_set_style_text_color(scan_label, lv_color_hex(0xFFFFFF), 0); // White text
+    lv_obj_add_event_cb(scan_btn, [](lv_event_t* e) {
+        if (wifiManager.isEnabled()) {
+            wifiManager.startScan();
+            createWiFiScreen();
+        } else {
+            lv_obj_t* msgbox = lv_msgbox_create(NULL, "WiFi Disabled", "Please enable WiFi to scan.", NULL, true);
+            lv_obj_center(msgbox);
+        }
+    }, LV_EVENT_CLICKED, NULL);
+
+    lv_scr_load(wifi_manager_screen);
+}
+
+// Create network details screen function
+void createNetworkDetailsScreen(const String& ssid) {
+    lv_obj_t* details_screen = lv_obj_create(NULL);
+    lv_obj_add_style(details_screen, &style_screen, 0);
+
+    // Header
+    lv_obj_t* header = lv_obj_create(details_screen);
+    lv_obj_set_size(header, SCREEN_WIDTH, 40);
     lv_obj_set_style_bg_color(header, lv_color_hex(0x333333), 0);
+    lv_obj_set_style_bg_opa(header, LV_OPA_COVER, 0);
     lv_obj_t* title = lv_label_create(header);
-    lv_label_set_text(title, "WiFi Settings");
+    lv_label_set_text_fmt(title, "Network: %s", ssid.c_str());
     lv_obj_add_style(title, &style_title, 0);
     lv_obj_align(title, LV_ALIGN_CENTER, 0, 0);
 
-    addWifiIndicator(wifi_manager_screen);
-    addBatteryIndicator(wifi_manager_screen);
+    // Container for details
+    lv_obj_t* container = lv_obj_create(details_screen);
+    lv_obj_set_size(container, SCREEN_WIDTH - 20, SCREEN_HEIGHT - 60);
+    lv_obj_align(container, LV_ALIGN_TOP_MID, 0, 50);
+    lv_obj_set_style_bg_color(container, lv_color_hex(0x000000), 0); // Black background
+    lv_obj_set_style_bg_opa(container, LV_OPA_COVER, 0); // Opaque background
 
-    lv_obj_t* status_label = lv_label_create(wifi_manager_screen);
-    lv_obj_align(status_label, LV_ALIGN_TOP_MID, 0, 60);
-    lv_label_set_text(status_label, "Saved Networks:");
+    // Connection Status
+    bool isConnected = wifiManager.isConnected() && wifiManager.getCurrentSSID() == ssid;
+    lv_obj_t* status_label = lv_label_create(container);
+    lv_label_set_text(status_label, isConnected ? "Status: Connected" : "Status: Disconnected");
+    lv_obj_align(status_label, LV_ALIGN_TOP_LEFT, 10, 10);
+    lv_obj_add_style(status_label, &style_text, 0);
+    lv_obj_set_style_text_color(status_label, lv_color_hex(0xFFFFFF), 0); // White text
 
-    saved_networks_list = lv_obj_create(wifi_manager_screen);
-    lv_obj_set_size(saved_networks_list, SCREEN_WIDTH - 20, SCREEN_HEIGHT - 120);
-    lv_obj_align(saved_networks_list, LV_ALIGN_TOP_MID, 0, 80);
-    lv_obj_set_style_bg_color(saved_networks_list, lv_color_hex(0x2D2D2D), 0);
-    lv_obj_set_scroll_dir(saved_networks_list, LV_DIR_VER);
+    // Signal Strength
+    lv_obj_t* strength_label = lv_label_create(container);
+    int rssi = isConnected ? wifiManager.getRSSI() : 0; // Only show RSSI if connected
+    int strength = isConnected ? map(rssi, -100, -50, 0, 100) : 0;
+    strength = constrain(strength, 0, 100);
+    lv_label_set_text_fmt(strength_label, "Signal Strength: %d%%", strength);
+    lv_obj_align(strength_label, LV_ALIGN_TOP_LEFT, 10, 40);
+    lv_obj_add_style(strength_label, &style_text, 0);
+    lv_obj_set_style_text_color(strength_label, lv_color_hex(0xFFFFFF), 0); // White text
 
-    auto networks = wifiManager.getSavedNetworks();
-    for (size_t i = 0; i < networks.size(); i++) {
-        lv_obj_t* net_cont = lv_obj_create(saved_networks_list);
-        lv_obj_set_size(net_cont, SCREEN_WIDTH - 40, 60);
-        lv_obj_set_pos(net_cont, 0, i * 70);
-        lv_obj_set_style_bg_color(net_cont, lv_color_hex(0x3A3A3A), 0);
+    // Connect/Disconnect Button
+    lv_obj_t* connect_btn = lv_btn_create(container);
+    lv_obj_set_size(connect_btn, 140, 50);
+    lv_obj_align(connect_btn, LV_ALIGN_TOP_MID, 0, 80);
+    lv_obj_add_style(connect_btn, &style_btn, 0);
+    lv_obj_add_style(connect_btn, &style_btn_pressed, LV_STATE_PRESSED);
+    lv_obj_t* connect_label = lv_label_create(connect_btn);
+    lv_label_set_text(connect_label, isConnected ? "Disconnect" : "Connect");
+    lv_obj_center(connect_label);
+    String* ssid_ptr = new String(ssid); // Allocate on heap to persist
+    lv_obj_add_event_cb(connect_btn, connect_btn_event_cb, LV_EVENT_CLICKED, ssid_ptr);
 
-        String status = networks[i].connected ? " (Connected)" : "";
-        lv_obj_t* ssid_label = lv_label_create(net_cont);
-        lv_label_set_text(ssid_label, (networks[i].ssid + status).c_str());
-        lv_obj_align(ssid_label, LV_ALIGN_LEFT_MID, 5, -10);
+    // Forget Button
+    lv_obj_t* forget_btn = lv_btn_create(container);
+    lv_obj_set_size(forget_btn, 140, 50);
+    lv_obj_align(forget_btn, LV_ALIGN_TOP_MID, 0, 140);
+    lv_obj_add_style(forget_btn, &style_btn, 0);
+    lv_obj_add_style(forget_btn, &style_btn_pressed, LV_STATE_PRESSED);
+    lv_obj_t* forget_label = lv_label_create(forget_btn);
+    lv_label_set_text(forget_label, "Forget Network");
+    lv_obj_center(forget_label);
+    String* forget_ssid_ptr = new String(ssid); // Allocate on heap to persist
+    lv_obj_add_event_cb(forget_btn, forget_btn_event_cb, LV_EVENT_CLICKED, forget_ssid_ptr);
 
-        lv_obj_t* prio_label = lv_label_create(net_cont);
-        lv_label_set_text(prio_label, ("Priority: " + String(networks[i].priority)).c_str());
-        lv_obj_align(prio_label, LV_ALIGN_LEFT_MID, 5, 10);
-
-        lv_obj_t* connect_btn = lv_btn_create(net_cont);
-        lv_obj_set_size(connect_btn, 80, 40);
-        lv_obj_align(connect_btn, LV_ALIGN_RIGHT_MID, -90, 0);
-        lv_obj_add_style(connect_btn, &style_btn, 0);
-        lv_obj_t* connect_label = lv_label_create(connect_btn);
-        lv_label_set_text(connect_label, "Connect");
-        lv_obj_center(connect_label);
-        lv_obj_add_event_cb(connect_btn, [](lv_event_t* e) {
-            lv_obj_t* cont = static_cast<lv_obj_t*>(lv_event_get_user_data(e)); // Cast to lv_obj_t*
-            lv_obj_t* label = lv_obj_get_child(cont, 0);
-            String ssid = lv_label_get_text(label);
-            int idx = ssid.indexOf(" (Connected)");
-            if (idx != -1) ssid = ssid.substring(0, idx);
-            auto nets = wifiManager.getSavedNetworks();
-            for (const auto& net : nets) {
-                if (net.ssid == ssid) {
-                    wifiManager.connect(net.ssid, net.password, false, net.priority);
-                    break;
-                }
-            }
-        }, LV_EVENT_CLICKED, net_cont);
-
-        lv_obj_t* remove_btn = lv_btn_create(net_cont);
-        lv_obj_set_size(remove_btn, 80, 40);
-        lv_obj_align(remove_btn, LV_ALIGN_RIGHT_MID, -5, 0);
-        lv_obj_add_style(remove_btn, &style_btn, 0);
-        lv_obj_t* remove_label = lv_label_create(remove_btn);
-        lv_label_set_text(remove_label, "Remove");
-        lv_obj_center(remove_label);
-        lv_obj_add_event_cb(remove_btn, [](lv_event_t* e) {
-            lv_obj_t* cont = static_cast<lv_obj_t*>(lv_event_get_user_data(e)); // Cast to lv_obj_t*
-            lv_obj_t* label = lv_obj_get_child(cont, 0);
-            String ssid = lv_label_get_text(label);
-            int idx = ssid.indexOf(" (Connected)");
-            if (idx != -1) ssid = ssid.substring(0, idx);
-            wifiManager.removeNetwork(ssid);
-            createWiFiManagerScreen();
-        }, LV_EVENT_CLICKED, net_cont);
-    }
-
-    lv_obj_t* add_btn = lv_btn_create(wifi_manager_screen);
-    lv_obj_align(add_btn, LV_ALIGN_BOTTOM_RIGHT, -10, -10);
-    lv_obj_set_size(add_btn, 90, 40);
-    lv_obj_add_style(add_btn, &style_btn, 0);
-    lv_obj_t* add_label = lv_label_create(add_btn);
-    lv_label_set_text(add_label, "Add New");
-    lv_obj_center(add_label);
-    lv_obj_add_event_cb(add_btn, [](lv_event_t* e) { createWiFiScreen(); }, LV_EVENT_CLICKED, NULL);
-
-    lv_obj_t* back_btn = lv_btn_create(wifi_manager_screen);
-    lv_obj_align(back_btn, LV_ALIGN_BOTTOM_LEFT, 10, -10);
-    lv_obj_set_size(back_btn, 90, 40);
+    // Back Button (proportioned like other buttons)
+    lv_obj_t* back_btn = lv_btn_create(details_screen);
+    lv_obj_set_size(back_btn, 140, 50); // Changed from 100 x 40 to 140 x 50
+    lv_obj_align(back_btn, LV_ALIGN_BOTTOM_MID, 0, -10);
     lv_obj_add_style(back_btn, &style_btn, 0);
+    lv_obj_add_style(back_btn, &style_btn_pressed, LV_STATE_PRESSED);
     lv_obj_t* back_label = lv_label_create(back_btn);
-    lv_label_set_text(back_label, LV_SYMBOL_LEFT " Back");
+    lv_label_set_text(back_label, "Back");
     lv_obj_center(back_label);
-    lv_obj_add_event_cb(back_btn, [](lv_event_t* e) { createMainMenu(); }, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(back_btn, [](lv_event_t* e) {
+        createWiFiManagerScreen();
+    }, LV_EVENT_CLICKED, NULL);
 
-    lv_scr_load(wifi_manager_screen);
+    lv_scr_load(details_screen);
 }
 
 void createWiFiScreen() {
@@ -2110,64 +2583,152 @@ void createWiFiScreen() {
     lv_obj_add_style(title, &style_title, 0);
     lv_obj_align(title, LV_ALIGN_CENTER, 0, 0);
 
-    addWifiIndicator(wifi_screen);
-    addBatteryIndicator(wifi_screen);
+    // Container with subtle shadow
+    lv_obj_t* container = lv_obj_create(wifi_screen);
+    lv_obj_set_size(container, 300, 180);
+    lv_obj_align(container, LV_ALIGN_TOP_MID, 0, 70);
+    lv_obj_set_style_bg_color(container, lv_color_hex(0x2A2A40), 0);
+    lv_obj_set_style_radius(container, 10, 0);
+    lv_obj_set_style_shadow_color(container, lv_color_hex(0x333333), 0);
+    lv_obj_set_style_shadow_width(container, 15, 0);
+    lv_obj_set_style_pad_all(container, 20, 0);
 
-    wifi_status_label = lv_label_create(wifi_screen);
-    lv_obj_align(wifi_status_label, LV_ALIGN_TOP_MID, 0, 60);
+    wifi_status_label = lv_label_create(container);
+    lv_obj_align(wifi_status_label, LV_ALIGN_TOP_MID, 0, 5);
     lv_label_set_text(wifi_status_label, "Scanning...");
+    lv_obj_set_style_text_font(wifi_status_label, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(wifi_status_label, lv_color_hex(0xFFFFFF), 0);
 
-    wifi_list = lv_list_create(wifi_screen);
-    lv_obj_set_size(wifi_list, SCREEN_WIDTH - 20, SCREEN_HEIGHT - 120);
-    lv_obj_align(wifi_list, LV_ALIGN_TOP_MID, 0, 80);
-    lv_obj_set_style_bg_color(wifi_list, lv_color_hex(0x2D2D2D), 0);
+    wifi_list = lv_list_create(container);
+    lv_obj_set_size(wifi_list, 280, 140);
+    lv_obj_align(wifi_list, LV_ALIGN_TOP_MID, 0, 30);
+    lv_obj_set_style_bg_color(wifi_list, lv_color_hex(0x2A2A40), 0);
+    lv_obj_set_style_border_width(wifi_list, 0, 0);
     lv_obj_set_scroll_dir(wifi_list, LV_DIR_VER);
     current_scroll_obj = wifi_list;
 
-    lv_obj_t* refresh_btn = lv_btn_create(wifi_screen);
-    lv_obj_align(refresh_btn, LV_ALIGN_BOTTOM_RIGHT, -10, -10);
-    lv_obj_set_size(refresh_btn, 90, 40);
-    lv_obj_add_style(refresh_btn, &style_btn, 0);
-    lv_obj_add_style(refresh_btn, &style_btn_pressed, LV_STATE_PRESSED);
-    lv_obj_t* refresh_label = lv_label_create(refresh_btn);
-    lv_label_set_text(refresh_label, LV_SYMBOL_REFRESH " Scan");
-    lv_obj_center(refresh_label);
-    lv_obj_add_event_cb(refresh_btn, [](lv_event_t* e) {
-        wifiManager.startScan();
-        lv_label_set_text(wifi_status_label, "Scanning...");
-        lv_obj_clean(wifi_list); // Clear list while scanning
-    }, LV_EVENT_CLICKED, NULL);
+    // Bottom button container
+    lv_obj_t* btnContainer = lv_obj_create(wifi_screen);
+    lv_obj_set_size(btnContainer, 300, 50);
+    lv_obj_align(btnContainer, LV_ALIGN_BOTTOM_MID, 0, -10);
+    lv_obj_set_style_bg_opa(btnContainer, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(btnContainer, 0, 0);
+    lv_obj_set_flex_flow(btnContainer, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(btnContainer, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
-    lv_obj_t* back_btn = lv_btn_create(wifi_screen);
-    lv_obj_align(back_btn, LV_ALIGN_BOTTOM_LEFT, 10, -10);
-    lv_obj_set_size(back_btn, 90, 40);
+    lv_obj_t* back_btn = lv_btn_create(btnContainer);
+    lv_obj_set_size(back_btn, 120, 45);
+    lv_obj_align(back_btn, LV_ALIGN_LEFT_MID, 0, 0);
     lv_obj_add_style(back_btn, &style_btn, 0);
     lv_obj_add_style(back_btn, &style_btn_pressed, LV_STATE_PRESSED);
     lv_obj_t* back_label = lv_label_create(back_btn);
-    lv_label_set_text(back_label, LV_SYMBOL_LEFT " Back");
+    lv_label_set_text(back_label, "Back");
     lv_obj_center(back_label);
+
     lv_obj_add_event_cb(back_btn, [](lv_event_t* e) {
         createWiFiManagerScreen();
+    }, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t* refresh_btn = lv_btn_create(btnContainer);
+    lv_obj_set_size(refresh_btn, 120, 45);
+    lv_obj_align(refresh_btn, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_add_style(refresh_btn, &style_btn, 0);
+    lv_obj_add_style(refresh_btn, &style_btn_pressed, LV_STATE_PRESSED);
+    lv_obj_t* refresh_label = lv_label_create(refresh_btn);
+    lv_label_set_text(refresh_label, "Scan");
+    lv_obj_center(refresh_label);
+
+    lv_obj_add_event_cb(refresh_btn, [](lv_event_t* e) {
+        // Clear list and update status
+        lv_obj_clean(wifi_list);
+        lv_label_set_text(wifi_status_label, "Scanning...");
+        
+        // Create spinner to indicate scanning
+        if (g_spinner == nullptr) {
+            g_spinner = lv_spinner_create(wifi_screen, 1000, 60);
+            lv_obj_set_size(g_spinner, 50, 50);
+            lv_obj_align(g_spinner, LV_ALIGN_CENTER, 0, 0);
+        }
+        
+        // Start scan
+        wifiManager.startScan();
+        
+        // Create a timeout timer
+        static uint32_t scan_start_time = 0;
+        scan_start_time = millis();
+        
+        if (scan_timer != nullptr) {
+            lv_timer_del(scan_timer);
+            scan_timer = nullptr;
+        }
+        
+        scan_timer = lv_timer_create([](lv_timer_t* timer) {
+            static uint32_t* start_time_ptr = (uint32_t*)timer->user_data;
+            uint32_t elapsed = millis() - *start_time_ptr;
+            
+            // Check if scan is taking too long (more than 10 seconds)
+            if (elapsed > 10000) {
+                // Update status label
+                if (wifi_status_label && lv_obj_is_valid(wifi_status_label)) {
+                    lv_label_set_text(wifi_status_label, "Scan timed out. Try again.");
+                }
+                
+                // Remove spinner
+                if (g_spinner && lv_obj_is_valid(g_spinner)) {
+                    lv_obj_del(g_spinner);
+                    g_spinner = nullptr;
+                }
+                
+                // Delete timer
+                lv_timer_del(timer);
+                scan_timer = nullptr;
+            }
+        }, 1000, &scan_start_time);
     }, LV_EVENT_CLICKED, NULL);
 
     lv_scr_load(wifi_screen);
     wifiManager.startScan(); // Start scan on screen load
 }
 
+static void connect_btn_event_cb(lv_event_t* e) {
+    String* ssid = static_cast<String*>(lv_event_get_user_data(e));
+    bool isConnected = wifiManager.isConnected() && wifiManager.getCurrentSSID() == *ssid;
+    if (isConnected) {
+        wifiManager.disconnect(true); // Manual disconnect
+        createNetworkDetailsScreen(*ssid); // Refresh screen
+    } else {
+        auto savedNetworks = wifiManager.getSavedNetworks();
+        for (const auto& net : savedNetworks) {
+            if (net.ssid == *ssid) {
+                showWiFiLoadingScreen(*ssid);
+                wifiManager.connect(*ssid, net.password, false);
+                break;
+            }
+        }
+    }
+    delete ssid; // Clean up allocated memory
+}
+
+// Static callback for forget button
+static void forget_btn_event_cb(lv_event_t* e) {
+    String* ssid = static_cast<String*>(lv_event_get_user_data(e));
+    wifiManager.removeNetwork(*ssid);
+    createWiFiManagerScreen(); // Return to WiFi Manager screen
+    delete ssid; // Clean up allocated memory
+}
+
 String getFormattedEntry(const String& entry) {
     String entryData = entry;
-    String timestamp = getTimestamp(); // Default to current timestamp for new entries
+    String timestamp = getTimestamp(); // Default to current timestamp
 
-    // Check if the entry contains a timestamp (from log file)
-    int colonPos = entry.indexOf(": ");
+    // Check if the entry contains a timestamp
+    int colonPos = entry.indexOf(", ");
     if (colonPos > 0 && colonPos <= 19 && entry.substring(0, 2).toInt() > 0) {
-        // This is a log entry with a timestamp
-        timestamp = entry.substring(0, colonPos + 1); // e.g., "05-Mar-2025 14:14:19: "
-        entryData = entry.substring(colonPos + 2);    // e.g., "Male,Red+Orange+Blue,..."
+        timestamp = entry.substring(0, colonPos + 1);
+        entryData = entry.substring(colonPos + 2);
         DEBUG_PRINTF("Extracted timestamp: %s\n", timestamp.c_str());
         DEBUG_PRINTF("Extracted entry data: %s\n", entryData.c_str());
     } else {
-        // No timestamp; assume this is a new entry (e.g., from confirmation screen)
         entryData = entry;
         DEBUG_PRINTF("No timestamp found, using raw entry: %s\n", entryData.c_str());
     }
@@ -2175,15 +2736,21 @@ String getFormattedEntry(const String& entry) {
     // Parse the entry data into parts
     String parts[5];
     int partCount = 0, startIdx = 0;
+    DEBUG_PRINTF("Parsing entryData: %s (length: %d)\n", entryData.c_str(), entryData.length());
     for (int i = 0; i < entryData.length() && partCount < 5; i++) {
         if (entryData.charAt(i) == ',') {
-            parts[partCount++] = entryData.substring(startIdx, i);
+            parts[partCount] = entryData.substring(startIdx, i);
+            DEBUG_PRINTF("Part %d: %s (from %d to %d)\n", partCount, parts[partCount].c_str(), startIdx, i);
+            partCount++;
             startIdx = i + 1;
         }
     }
     if (startIdx < entryData.length()) {
-        parts[partCount++] = entryData.substring(startIdx);
+        parts[partCount] = entryData.substring(startIdx);
+        DEBUG_PRINTF("Part %d: %s (from %d to end)\n", partCount, parts[partCount].c_str(), startIdx);
+        partCount++;
     }
+    DEBUG_PRINTF("Total parts found: %d\n", partCount);
 
     // Format the output
     String formatted = "Time: " + timestamp + "\n";
@@ -2197,385 +2764,47 @@ String getFormattedEntry(const String& entry) {
     return formatted;
 }
 
-String getTimestamp() {
-    m5::rtc_date_t DateStruct;
-    m5::rtc_time_t TimeStruct;
-    M5.Rtc.getDate(&DateStruct);
-    M5.Rtc.getTime(&TimeStruct);
-
-    struct tm timeinfo = {0};
-    timeinfo.tm_year = DateStruct.year - 1900; // Years since 1900
-    timeinfo.tm_mon = DateStruct.month - 1;     // Months 0-11
-    timeinfo.tm_mday = DateStruct.date;
-    timeinfo.tm_hour = TimeStruct.hours;
-    timeinfo.tm_min = TimeStruct.minutes;
-    timeinfo.tm_sec = TimeStruct.seconds;
-    timeinfo.tm_isdst = -1;
-
-    if (timeinfo.tm_year > 70) { // Valid time (year > 1970)
-        char buffer[25];
-        strftime(buffer, sizeof(buffer), "%d-%b-%Y %H:%M:%S", &timeinfo); // e.g., "05-Mar-2025 08:12:24"
-        return String(buffer);
-    }
-    return "NoTime"; // Fallback if RTC isn’t set
-}
-
-bool appendToLog(const String& entry) {
-    if (!fileSystemInitialized) {
-        DEBUG_PRINT("File system not initialized, attempting to initialize...");
-        initFileSystem();
-        if (!fileSystemInitialized) {
-            DEBUG_PRINT("File system not initialized, cannot save entry");
-            return false;
-        }
-    }
-    
-    SPI.end();
-    delay(100);
-    SPI_SD.begin(SD_SPI_SCK_PIN, SD_SPI_MISO_PIN, SD_SPI_MOSI_PIN, -1); // -1 means no default CS
-    pinMode(SD_SPI_CS_PIN, OUTPUT); // Set CS pin (4) as OUTPUT
-    digitalWrite(SD_SPI_CS_PIN, HIGH); // Deselect SD card (HIGH = off)
-    delay(100);
-    
-    File file = SD.open(LOG_FILENAME, FILE_APPEND);
-    if (!file) {
-        DEBUG_PRINT("Failed to open log file for writing");
-        SPI_SD.end();
-        SPI.begin();
-        pinMode(TFT_DC, OUTPUT);
-        digitalWrite(TFT_DC, HIGH);
-        return false;
-    }
-    
-    String timestamp = getTimestamp();
-    String formattedEntry = timestamp + ": " + entry; // e.g., "05-Mar-2025 14:31:53: Male,Blue+Green+Red+Orange,..."
-    DEBUG_PRINTF("Raw entry text: %s\n", formattedEntry.c_str());
-    size_t bytesWritten = file.println(formattedEntry);
-    file.close();
-    
-    SPI_SD.end();
-    SPI.begin();
-    pinMode(TFT_DC, OUTPUT);
-    digitalWrite(TFT_DC, HIGH);
-    
-    if (bytesWritten == 0) {
-        DEBUG_PRINT("Failed to write to log file");
-        return false;
-    }
-    
-    DEBUG_PRINTF("Entry saved to file (%d bytes): %s\n", bytesWritten, formattedEntry.c_str());
-    return true;
-}
-
-void createViewLogsScreen() {
-    DEBUG_PRINT("Creating new view logs screen");
-
-    parsedLogEntries.clear();
-
-    lv_obj_t* logs_screen = lv_obj_create(NULL);
-    lv_obj_add_style(logs_screen, &style_screen, 0);
-
-    addWifiIndicator(logs_screen);
-    addBatteryIndicator(logs_screen);
-
-    lv_obj_t* header = lv_obj_create(logs_screen);
-    lv_obj_set_size(header, 320, 40);
-    lv_obj_set_pos(header, 0, 0);
-    lv_obj_set_style_bg_color(header, lv_color_hex(0x333333), 0);
-    lv_obj_t* title = lv_label_create(header);
-    lv_label_set_text(title, "Log Entries - Last 3 Days");
-    lv_obj_add_style(title, &style_title, 0);
-    lv_obj_center(title);
-
-    lv_obj_t* tabview = lv_tabview_create(logs_screen, LV_DIR_TOP, 30);
-    lv_obj_set_size(tabview, SCREEN_WIDTH, SCREEN_HEIGHT - 40);
-    lv_obj_align(tabview, LV_ALIGN_BOTTOM_MID, 0, 0);
-    lv_obj_set_style_bg_color(tabview, lv_color_hex(0x2D2D2D), 0);
-
-    time_t now;
-    time(&now);
-    if (WiFi.status() == WL_CONNECTED) syncTimeWithNTP();
-    struct tm* timeinfo = localtime(&now);
-    char current_time[25]; // Increased size for new format
-    strftime(current_time, sizeof(current_time), "%d-%b-%Y %H:%M:%S", timeinfo);
-    DEBUG_PRINTF("Current system time: %s\n", current_time);
-
-    if (!fileSystemInitialized) {
-        DEBUG_PRINT("Filesystem not initialized, attempting to initialize");
-        initFileSystem();
-    }
-
-    if (fileSystemInitialized) {
-        SPI.end();
-        delay(100);
-        SPI_SD.begin(SD_SPI_SCK_PIN, SD_SPI_MISO_PIN, SD_SPI_MOSI_PIN, -1); // -1 means no default CS
-        pinMode(SD_SPI_CS_PIN, OUTPUT); // Set CS pin (4) as OUTPUT
-        digitalWrite(SD_SPI_CS_PIN, HIGH); // Deselect SD card (HIGH = off)
-        delay(100);
-
-        if (!SD.exists(LOG_FILENAME)) {
-            File file = SD.open(LOG_FILENAME, FILE_WRITE);
-            if (file) {
-                file.println("# Loss Prevention Log - Created " + getTimestamp());
-                file.close();
-                DEBUG_PRINT("Created new log file");
-            }
-        }
-
-        File log_file = SD.open(LOG_FILENAME, FILE_READ);
-        if (log_file) {
-            DEBUG_PRINT("Reading log file anew...");
-            while (log_file.available()) {
-                String line = log_file.readStringUntil('\n');
-                line.trim();
-                if (line.length() > 0 && !line.startsWith("#")) {
-                    time_t timestamp = parseTimestamp(line);
-                    if (timestamp != 0) {
-                        parsedLogEntries.push_back({line, timestamp});
-                        DEBUG_PRINTF("Parsed entry: %s\n", line.c_str());
-                    } else {
-                        DEBUG_PRINTF("Failed to parse timestamp: %s\n", line.c_str());
-                    }
-                }
-            }
-            log_file.close();
-            DEBUG_PRINTF("Read %d valid log entries from file\n", parsedLogEntries.size());
-        } else {
-            DEBUG_PRINT("Failed to open log file for reading");
-        }
-
-        SPI_SD.end();
-        SPI.begin();
-        pinMode(TFT_DC, OUTPUT);
-        digitalWrite(TFT_DC, HIGH);
-    }
-
-    char tab_names[3][16];
-    lv_obj_t* tabs[3];
-    std::vector<LogEntry*> entries_by_day[3];
-
-    for (int i = 0; i < 3; i++) {
-        struct tm day_time = *timeinfo;
-        day_time.tm_mday -= i;
-        day_time.tm_hour = 0;
-        day_time.tm_min = 0;
-        day_time.tm_sec = 0;
-        mktime(&day_time);
-
-        strftime(tab_names[i], sizeof(tab_names[i]), "%m/%d/%y", &day_time);
-        tabs[i] = lv_tabview_add_tab(tabview, tab_names[i]);
-
-        time_t day_start = mktime(&day_time);
-        day_time.tm_hour = 23;
-        day_time.tm_min = 59;
-        day_time.tm_sec = 59;
-        mktime(&day_time);
-        time_t day_end = mktime(&day_time);
-
-        char day_start_str[25], day_end_str[25];
-        strftime(day_start_str, sizeof(day_start_str), "%d-%b-%Y %H:%M:%S", localtime(&day_start));
-        strftime(day_end_str, sizeof(day_end_str), "%d-%b-%Y %H:%M:%S", localtime(&day_end));
-        DEBUG_PRINTF("Filtering %s: %s to %s\n", tab_names[i], day_start_str, day_end_str);
-
-        for (auto& entry : parsedLogEntries) {
-            if (entry.timestamp >= day_start && entry.timestamp <= day_end) {
-                entries_by_day[i].push_back(&entry);
-                DEBUG_PRINTF("Matched entry for %s: %s\n", tab_names[i], entry.text.c_str());
-            }
-        }
-
-        std::sort(entries_by_day[i].begin(), entries_by_day[i].end(), 
-            [](const LogEntry* a, const LogEntry* b) {
-                return a->timestamp < b->timestamp;
-            });
-
-        DEBUG_PRINTF("Day %s: %d entries\n", tab_names[i], entries_by_day[i].size());
-    }
-
-    for (int i = 0; i < 3; i++) {
-        lv_obj_t* container = lv_obj_create(tabs[i]);
-        lv_obj_set_size(container, SCREEN_WIDTH - 20, SCREEN_HEIGHT - 70);
-        lv_obj_align(container, LV_ALIGN_TOP_MID, 0, 0);
-        lv_obj_set_style_bg_opa(container, LV_OPA_TRANSP, 0);
-        lv_obj_set_scroll_dir(container, LV_DIR_VER);
-        lv_obj_set_scrollbar_mode(container, LV_SCROLLBAR_MODE_AUTO);
-        lv_obj_add_flag(container, LV_OBJ_FLAG_SCROLLABLE);
-
-        if (entries_by_day[i].empty()) {
-            lv_obj_t* no_logs = lv_label_create(container);
-            lv_label_set_text(no_logs, "No entries for this day");
-            lv_obj_align(no_logs, LV_ALIGN_CENTER, 0, 0);
-        } else {
-            int y_pos = 0;
-            int entry_num = 1;
-            for (const auto* entry : entries_by_day[i]) {
-                lv_obj_t* entry_btn = lv_btn_create(container);
-                lv_obj_set_size(entry_btn, SCREEN_WIDTH - 30, 25);
-                lv_obj_add_style(entry_btn, &style_btn, 0);
-                lv_obj_add_style(entry_btn, &style_btn_pressed, LV_STATE_PRESSED);
-                lv_obj_set_style_bg_color(entry_btn, lv_color_hex(0x3A3A3A), 0);
-
-                struct tm* entry_time = localtime(&entry->timestamp);
-                char time_str[16];
-                strftime(time_str, sizeof(time_str), "%H:%M", entry_time);
-                String entry_label = "Entry " + String(entry_num++) + ": " + String(time_str);
-
-                lv_obj_t* label = lv_label_create(entry_btn);
-                lv_label_set_text(label, entry_label.c_str());
-                lv_obj_align(label, LV_ALIGN_LEFT_MID, 5, 0);
-
-                lv_obj_set_user_data(entry_btn, (void*)entry);
-
-                lv_obj_add_event_cb(entry_btn, [](lv_event_t* e) {
-                    lv_obj_t* btn = lv_event_get_target(e);
-                    LogEntry* entry = (LogEntry*)lv_obj_get_user_data(btn);
-                    if (entry) {
-                        DEBUG_PRINTF("Raw entry text: %s\n", entry->text.c_str());
-                        int colon_pos = entry->text.indexOf(": ");
-                        if (colon_pos != -1) {
-                            String entry_data = entry->text.substring(colon_pos + 2); // Extract raw data after timestamp
-                            DEBUG_PRINTF("Extracted entry data: %s\n", entry_data.c_str());
-                            String formatted_entry = getFormattedEntry(entry_data);
-                            DEBUG_PRINTF("Formatted: %s\n", formatted_entry.c_str());
-                            lv_obj_t* msgbox = lv_msgbox_create(NULL, "Log Entry Details", 
-                                formatted_entry.c_str(), NULL, true);
-                            lv_obj_set_size(msgbox, 280, 180);
-                            lv_obj_center(msgbox);
-                            lv_obj_set_style_text_font(lv_msgbox_get_text(msgbox), &lv_font_montserrat_14, 0);
-                        } else {
-                            DEBUG_PRINT("No colon found in entry text");
-                            lv_obj_t* msgbox = lv_msgbox_create(NULL, "Error", 
-                                "Invalid log entry format", NULL, true);
-                            lv_obj_set_size(msgbox, 280, 180);
-                            lv_obj_center(msgbox);
-                        }
-                    }
-                }, LV_EVENT_CLICKED, NULL);
-
-                y_pos += 30;
-            }
-        }
-    }
-
-    lv_obj_t* back_btn = lv_btn_create(logs_screen);
-    lv_obj_set_size(back_btn, 80, 40);
-    lv_obj_align(back_btn, LV_ALIGN_TOP_LEFT, 10, 0);
-    lv_obj_add_style(back_btn, &style_btn, 0);
-    lv_obj_add_style(back_btn, &style_btn_pressed, LV_STATE_PRESSED);
-    lv_obj_t* back_label = lv_label_create(back_btn);
-    lv_label_set_text(back_label, LV_SYMBOL_LEFT " Back");
-    lv_obj_center(back_label);
-    lv_obj_move_foreground(back_btn);
-
-    lv_obj_add_event_cb(back_btn, [](lv_event_t* e) {
-        DEBUG_PRINT("Returning to main menu from logs");
-        createMainMenu();
-    }, LV_EVENT_CLICKED, NULL);
-
-    lv_obj_t* reset_btn = lv_btn_create(logs_screen);
-    lv_obj_set_size(reset_btn, 80, 40);
-    lv_obj_align(reset_btn, LV_ALIGN_TOP_RIGHT, -10, 0);
-    lv_obj_add_style(reset_btn, &style_btn, 0);
-    lv_obj_add_style(reset_btn, &style_btn_pressed, LV_STATE_PRESSED);
-    lv_obj_t* reset_label = lv_label_create(reset_btn);
-    lv_label_set_text(reset_label, "Reset");
-    lv_obj_center(reset_label);
-    lv_obj_move_foreground(reset_btn);
-
-    lv_obj_add_event_cb(reset_btn, [](lv_event_t* e) {
-        static const char* btns[] = {"Yes", "No", ""};
-        lv_obj_t* msgbox = lv_msgbox_create(NULL, "Confirm Reset", 
-            "Are you sure you want to delete all log entries?", btns, false);
-        lv_obj_set_size(msgbox, 250, 150);
-        lv_obj_center(msgbox);
-
-        lv_obj_add_event_cb(msgbox, [](lv_event_t* e) {
-            lv_obj_t* obj = lv_event_get_current_target(e);
-            const char* btn_text = lv_msgbox_get_active_btn_text(obj);
-            if (btn_text && strcmp(btn_text, "Yes") == 0) {
-                SPI.end();
-                delay(100);
-                SPI_SD.begin(SD_SPI_SCK_PIN, SD_SPI_MISO_PIN, SD_SPI_MOSI_PIN, -1); // -1 means no default CS
-                pinMode(SD_SPI_CS_PIN, OUTPUT); // Set CS pin (4) as OUTPUT
-                digitalWrite(SD_SPI_CS_PIN, HIGH); // Deselect SD card (HIGH = off)
-                delay(100);
-
-                if (SD.remove(LOG_FILENAME)) {
-                    File file = SD.open(LOG_FILENAME, FILE_WRITE);
-                    if (file) {
-                        file.println("# Loss Prevention Log - Reset " + getTimestamp());
-                        file.close();
-                        DEBUG_PRINT("Log file reset successfully");
-                    }
-                } else {
-                    DEBUG_PRINT("Failed to reset log file");
-                }
-
-                SPI_SD.end();
-                SPI.begin();
-                pinMode(TFT_DC, OUTPUT);
-                digitalWrite(TFT_DC, HIGH);
-
-                parsedLogEntries.clear();
-                lv_obj_t* screen_to_delete = lv_scr_act();
-                createViewLogsScreen();
-                if (screen_to_delete && screen_to_delete != lv_scr_act()) {
-                    lv_obj_del(screen_to_delete);
-                }
-            }
-            lv_msgbox_close(obj);
-        }, LV_EVENT_VALUE_CHANGED, NULL);
-    }, LV_EVENT_CLICKED, NULL);
-
-    lv_scr_load(logs_screen);
-    lv_timer_handler();
-    DEBUG_PRINT("View logs screen created successfully");
-}
-
 void initStyles() {
-    // Screen style with gradient background
+    // Screen style
     lv_style_init(&style_screen);
+    lv_style_set_bg_color(&style_screen, lv_color_hex(0x1A1A1A));
     lv_style_set_bg_opa(&style_screen, LV_OPA_COVER);
-    lv_style_set_bg_color(&style_screen, lv_color_hex(0x1E1E2F)); // Dark blue-gray base
-    lv_style_set_bg_grad_color(&style_screen, lv_color_hex(0x3A3A5A)); // Lighter gradient
-    lv_style_set_bg_grad_dir(&style_screen, LV_GRAD_DIR_VER);
-    lv_style_set_border_width(&style_screen, 0);
-
-    // Title style
-    lv_style_init(&style_title);
-    lv_style_set_text_font(&style_title, &lv_font_montserrat_24);
-    lv_style_set_text_color(&style_title, lv_color_hex(0xFFFFFF));
-    lv_style_set_shadow_color(&style_title, lv_color_hex(0xAAAAAA));
-    lv_style_set_shadow_width(&style_title, 10);
-    lv_style_set_shadow_spread(&style_title, 2);
 
     // Button style
     lv_style_init(&style_btn);
-    lv_style_set_bg_color(&style_btn, lv_color_hex(0x4A90E2)); // Bright blue
+    lv_style_set_bg_color(&style_btn, lv_color_hex(0x4A90E2));
     lv_style_set_bg_opa(&style_btn, LV_OPA_COVER);
+    lv_style_set_text_color(&style_btn, lv_color_hex(0xFFFFFF));
     lv_style_set_border_width(&style_btn, 0);
-    lv_style_set_radius(&style_btn, 8);
-    lv_style_set_shadow_color(&style_btn, lv_color_hex(0x333333));
-    lv_style_set_shadow_width(&style_btn, 10);
-    lv_style_set_text_color(&style_btn, lv_color_white());
 
     // Button pressed style
     lv_style_init(&style_btn_pressed);
-    lv_style_set_bg_color(&style_btn_pressed, lv_color_hex(0x357ABD)); // Darker blue
-    lv_style_set_shadow_width(&style_btn_pressed, 5);
+    lv_style_set_bg_color(&style_btn_pressed, lv_color_hex(0x357ABD));
+    lv_style_set_bg_opa(&style_btn_pressed, LV_OPA_COVER);
 
+    // Title style
+    lv_style_init(&style_title);
+    lv_style_set_text_font(&style_title, &lv_font_montserrat_20);
+    lv_style_set_text_color(&style_title, lv_color_hex(0xFFFFFF));
+
+    // Card action style
+    lv_style_init(&style_card_action);
+    lv_style_set_bg_color(&style_card_action, lv_color_hex(0x2D2D2D));
+    lv_style_set_bg_opa(&style_card_action, LV_OPA_COVER);
+    lv_style_set_border_color(&style_card_action, lv_color_hex(0x4A90E2));
+    lv_style_set_border_width( &style_card_action, 1);
+
+    // Card pressed style
+    lv_style_init(&style_card_pressed);
+    lv_style_set_bg_color(&style_card_pressed, lv_color_hex(0x357ABD));
+    lv_style_set_bg_opa(&style_card_pressed, LV_OPA_COVER);
+
+    // Add other styles as needed (e.g., style_text, style_card_info)
     lv_style_init(&style_text);
     lv_style_set_text_color(&style_text, lv_color_hex(0xFFFFFF));
     lv_style_set_text_font(&style_text, &lv_font_montserrat_14);
-    
-    // Initialize keyboard button style
-    lv_style_init(&style_keyboard_btn);
-    lv_style_set_radius(&style_keyboard_btn, 8);
-    lv_style_set_border_width(&style_keyboard_btn, 2);
-    lv_style_set_border_color(&style_keyboard_btn, lv_color_hex(0x888888));
-    lv_style_set_pad_all(&style_keyboard_btn, 5);
-    lv_style_set_bg_color(&style_keyboard_btn, lv_color_hex(0x333333));
-    lv_style_set_text_color(&style_keyboard_btn, lv_color_hex(0xFFFFFF));
+
+    DEBUG_PRINT("Styles initialized");
 }
 
 void cleanupWiFiResources() {
@@ -2743,74 +2972,52 @@ void connectToSavedNetworks() {
 
 void listSavedEntries() {
     if (!fileSystemInitialized) {
-        initFileSystem();
-    }
-    
-    // Switch to SD card mode
-    SPI.end();
-    delay(100);
-    SPI_SD.begin(SD_SPI_SCK_PIN, SD_SPI_MISO_PIN, SD_SPI_MOSI_PIN, -1); // -1 means no default CS
-    pinMode(SD_SPI_CS_PIN, OUTPUT); // Set CS pin (4) as OUTPUT
-    digitalWrite(SD_SPI_CS_PIN, HIGH); // Deselect SD card (HIGH = off)
-    delay(100);
-    
-    if (!SD.exists(LOG_FILENAME)) {
-        println_log("Log file does not exist");
-        
-        // Switch back to LCD mode
-        SPI_SD.end();
-        SPI.begin();
-        pinMode(TFT_DC, OUTPUT);
-        digitalWrite(TFT_DC, HIGH);
+        DEBUG_PRINT("File system not initialized - skipping listSavedEntries");
         return;
     }
-    
+
+    releaseSPIBus();
+    SPI_SD.begin(SD_SPI_SCK_PIN, SD_SPI_MISO_PIN, SD_SPI_MOSI_PIN, SD_SPI_CS_PIN);
     File file = SD.open(LOG_FILENAME, FILE_READ);
     if (!file) {
-        println_log("Failed to open log file for reading");
-        
-        // Switch back to LCD mode
+        DEBUG_PRINT("Failed to open log file for reading");
         SPI_SD.end();
         SPI.begin();
-        pinMode(TFT_DC, OUTPUT);
-        digitalWrite(TFT_DC, HIGH);
         return;
     }
-    
-    println_log("Saved entries:");
+
+    parsedLogEntries.clear();
+    String entryText = "";
+
     while (file.available()) {
         String line = file.readStringUntil('\n');
-        println_log(line.c_str());
+        line.trim();
+
+        if (line.length() == 0 && entryText.length() > 0) {
+            LogEntry entry;
+            entry.text = entryText;
+            entry.timestamp = parseTimestamp(entryText);
+            parsedLogEntries.push_back(entry);
+            entryText = "";
+        } else if (line.length() > 0) {
+            entryText += line + "\n";
+        }
     }
+
+    if (entryText.length() > 0) {
+        LogEntry entry;
+        entry.text = entryText;
+        entry.timestamp = parseTimestamp(entryText);
+        parsedLogEntries.push_back(entry);
+    }
+
     file.close();
-    
-    // Switch back to LCD mode
     SPI_SD.end();
     SPI.begin();
     pinMode(TFT_DC, OUTPUT);
     digitalWrite(TFT_DC, HIGH);
-}
 
-void saveEntry(const String& entry) {
-    Serial.println("New Entry:");
-    Serial.println(entry);
-    
-    bool saved = appendToLog(entry); // Save to SD card
-    
-    if (WiFi.status() == WL_CONNECTED) {
-        sendWebhook(entry); // Send to Discord
-        if (saved) {
-            updateStatus("Entry Saved & Sent", 0x00FF00);
-        } else {
-            updateStatus("Error Saving Entry", 0xFF0000);
-        }
-    } else {
-        if (saved) {
-            updateStatus("Offline: Entry Saved Locally", 0xFFFF00);
-        } else {
-            updateStatus("Error: Failed to Save Entry", 0xFF0000);
-        }
-    }
+    DEBUG_PRINTF("Total entries loaded: %d\n", parsedLogEntries.size());
 }
 
 // Helper functions for logging to both Serial and Display
@@ -2834,6 +3041,7 @@ void printf_log(const char *format, ...) {
         lv_label_set_text(status_bar, buf);
     }
 }
+
 void sendWebhook(const String& entry) {
     if (WiFi.status() != WL_CONNECTED) {
         DEBUG_PRINT("WiFi not connected, skipping webhook");
@@ -2893,6 +3101,8 @@ void sendWebhook(const String& entry) {
 // Callback for status updates
 void onWiFiStatus(WiFiState state, const String& message) {
     DEBUG_PRINTF("WiFi Status: %s - %s\n", wifiManager.getStateString().c_str(), message.c_str());
+    
+    // Update status bar if visible
     if (status_bar) {
         lv_label_set_text(status_bar, message.c_str());
         lv_obj_set_style_text_color(status_bar, 
@@ -2900,16 +3110,48 @@ void onWiFiStatus(WiFiState state, const String& message) {
             state == WiFiState::WIFI_CONNECTING ? lv_color_hex(0xFFFF00) : 
             lv_color_hex(0xFF0000), 0);
     }
-    updateWifiIndicator();
+    
+    // Update loading screen if active
+    if (wifi_loading_screen != nullptr && lv_obj_is_valid(wifi_loading_screen) && 
+        lv_scr_act() == wifi_loading_screen) {
+        if (state == WiFiState::WIFI_CONNECTED) {
+            updateWiFiLoadingScreen(true, "WiFi Connected!");
+        } else if (state == WiFiState::WIFI_DISCONNECTED && 
+                  (message.indexOf("failed") >= 0 || message.indexOf("Failed") >= 0)) {
+            updateWiFiLoadingScreen(false, "Connection Failed!");
+        }
+    }
 }
 // Callback for scan results
 void onWiFiScanComplete(const std::vector<NetworkInfo>& results) {
     if (wifi_screen && lv_obj_is_valid(wifi_screen)) {
+        // Remove spinner if it exists
+        if (g_spinner != nullptr) {
+            lv_obj_del(g_spinner);
+            g_spinner = nullptr;
+        }
+        
         lv_obj_clean(wifi_list);
+        
+        if (results.empty()) {
+            lv_label_set_text(wifi_status_label, "No networks found");
+            return;
+        }
+        
+        lv_label_set_text(wifi_status_label, "Select a network");
+        
         for (const auto& net : results) {
-            String displayText = net.ssid + (net.encryptionType != WIFI_AUTH_OPEN ? " *" : "");
+            if (net.ssid.isEmpty()) continue; // Skip empty SSIDs
+            
+            String displayText = net.ssid;
+            if (net.encryptionType != WIFI_AUTH_OPEN) {
+                displayText += " *";
+            }
+            
             lv_obj_t* btn = lv_list_add_btn(wifi_list, LV_SYMBOL_WIFI, displayText.c_str());
             lv_obj_add_style(btn, &style_btn, 0);
+            
+            // Add click event
             lv_obj_add_event_cb(btn, [](lv_event_t* e) {
                 const char* text = lv_list_get_btn_text(wifi_list, lv_event_get_target(e));
                 String ssid = String(text);
@@ -2920,72 +3162,78 @@ void onWiFiScanComplete(const std::vector<NetworkInfo>& results) {
                 showWiFiKeyboard();
             }, LV_EVENT_CLICKED, NULL);
         }
-        lv_label_set_text(wifi_status_label, "Scan complete");
+    lv_label_set_text(wifi_status_label, "Scan complete");
     }
 }
-
 void createSettingsScreen() {
-    if (settings_screen) {
-        lv_obj_del(settings_screen);
-        settings_screen = nullptr;
+    if (settingsScreen) {
+        lv_obj_del(settingsScreen);
+        settingsScreen = nullptr;
     }
-    settings_screen = lv_obj_create(NULL);
-    lv_obj_add_style(settings_screen, &style_screen, 0);
-
-    lv_obj_t* header = lv_obj_create(settings_screen);
-    lv_obj_set_size(header, SCREEN_WIDTH, 50);
+    
+    settingsScreen = lv_obj_create(NULL);
+    lv_obj_add_style(settingsScreen, &style_screen, 0);
+    
+    // Header
+    lv_obj_t* header = lv_obj_create(settingsScreen);
+    lv_obj_set_size(header, SCREEN_WIDTH, 40);
     lv_obj_set_style_bg_color(header, lv_color_hex(0x333333), 0);
     lv_obj_t* title = lv_label_create(header);
     lv_label_set_text(title, "Settings");
     lv_obj_add_style(title, &style_title, 0);
     lv_obj_align(title, LV_ALIGN_CENTER, 0, 0);
-
-    addWifiIndicator(settings_screen);
-    addBatteryIndicator(settings_screen);
-
-    lv_obj_t* settings_list = lv_list_create(settings_screen);
-    lv_obj_set_size(settings_list, SCREEN_WIDTH - 20, SCREEN_HEIGHT - 120);
-    lv_obj_align(settings_list, LV_ALIGN_TOP_MID, 0, 60);
-    lv_obj_set_style_bg_color(settings_list, lv_color_hex(0x2D2D2D), 0);
-    lv_obj_set_scroll_dir(settings_list, LV_DIR_VER);
-    current_scroll_obj = settings_list;
-
-    // Sound option
-    lv_obj_t* sound_btn = lv_list_add_btn(settings_list, LV_SYMBOL_AUDIO, "Sound");
-    lv_obj_add_style(sound_btn, &style_btn, 0);
-    lv_obj_add_event_cb(sound_btn, [](lv_event_t* e) {
-        DEBUG_PRINT("Sound settings clicked");
-        createSoundSettingsScreen(); // Navigate to sound settings
-    }, LV_EVENT_CLICKED, NULL);
-
-    // Brightness option (unchanged)
-    lv_obj_t* brightness_btn = lv_list_add_btn(settings_list, LV_SYMBOL_SETTINGS, "Brightness");
-    lv_obj_add_style(brightness_btn, &style_btn, 0);
-    lv_obj_add_event_cb(brightness_btn, [](lv_event_t* e) {
-        createBrightnessSettingsScreen();
-    }, LV_EVENT_CLICKED, NULL);
-
-    // WiFi option (unchanged)
-    lv_obj_t* wifi_btn = lv_list_add_btn(settings_list, LV_SYMBOL_WIFI, "WiFi");
-    lv_obj_add_style(wifi_btn, &style_btn, 0);
+    
+    // Settings list
+    lv_obj_t* list = lv_list_create(settingsScreen);
+    lv_obj_set_size(list, SCREEN_WIDTH - 20, SCREEN_HEIGHT - 100);
+    lv_obj_align(list, LV_ALIGN_TOP_MID, 0, 50);
+    lv_obj_set_style_bg_color(list, lv_color_hex(0x2D2D2D), 0);
+    
+    // WiFi settings
+    lv_obj_t* wifi_btn = lv_list_add_btn(list, LV_SYMBOL_WIFI, "WiFi Settings");
     lv_obj_add_event_cb(wifi_btn, [](lv_event_t* e) {
         createWiFiManagerScreen();
     }, LV_EVENT_CLICKED, NULL);
-
-    // Back button (unchanged)
-    lv_obj_t* back_btn = lv_btn_create(settings_screen);
-    lv_obj_align(back_btn, LV_ALIGN_BOTTOM_LEFT, 10, -10);
-    lv_obj_set_size(back_btn, 90, 40);
+    
+    // Sound settings
+    lv_obj_t* sound_btn = lv_list_add_btn(list, LV_SYMBOL_AUDIO, "Sound Settings");
+    lv_obj_add_event_cb(sound_btn, [](lv_event_t* e) {
+        createSoundSettingsScreen();
+    }, LV_EVENT_CLICKED, NULL);
+    
+    // Display settings
+    lv_obj_t* display_btn = lv_list_add_btn(list, LV_SYMBOL_SETTINGS, "Display Settings");
+    lv_obj_add_event_cb(display_btn, [](lv_event_t* e) {
+        createBrightnessSettingsScreen();
+    }, LV_EVENT_CLICKED, NULL);
+    
+    // Date & Time settings
+    lv_obj_t* datetime_btn = lv_list_add_btn(list, LV_SYMBOL_CALL, "Date & Time");
+    lv_obj_add_event_cb(datetime_btn, [](lv_event_t* e) {
+        createDateSelectionScreen();
+    }, LV_EVENT_CLICKED, NULL);
+    
+    // Power management
+    lv_obj_t* power_btn = lv_list_add_btn(list, LV_SYMBOL_BATTERY_FULL, "Power Management");
+    lv_obj_add_event_cb(power_btn, [](lv_event_t* e) {
+        createPowerManagementScreen();
+    }, LV_EVENT_CLICKED, NULL);
+    
+    // Back button
+    lv_obj_t* back_btn = lv_btn_create(settingsScreen);
+    lv_obj_set_size(back_btn, 100, 40);
+    lv_obj_align(back_btn, LV_ALIGN_BOTTOM_MID, 0, -10);
     lv_obj_add_style(back_btn, &style_btn, 0);
     lv_obj_add_style(back_btn, &style_btn_pressed, LV_STATE_PRESSED);
     lv_obj_t* back_label = lv_label_create(back_btn);
-    lv_label_set_text(back_label, LV_SYMBOL_LEFT " Back");
+    lv_label_set_text(back_label, "Back");
     lv_obj_center(back_label);
+    
     lv_obj_add_event_cb(back_btn, [](lv_event_t* e) {
         createMainMenu();
     }, LV_EVENT_CLICKED, NULL);
-
-    lv_scr_load(settings_screen);
+    
+    lv_scr_load(settingsScreen);
 }
 
 void createSoundSettingsScreen() {
@@ -2995,19 +3243,26 @@ void createSoundSettingsScreen() {
         sound_settings_screen = nullptr;
     }
     sound_settings_screen = lv_obj_create(NULL);
+    if (!sound_settings_screen) {
+        DEBUG_PRINT("Failed to create sound_settings_screen");
+        return;
+    }
+    DEBUG_PRINTF("Created sound_settings_screen: %p\n", sound_settings_screen);
+    
     lv_obj_add_style(sound_settings_screen, &style_screen, 0);
+    lv_scr_load(sound_settings_screen);
+    DEBUG_PRINT("Screen loaded");
 
-    // Header
+    // Header with gradient
     lv_obj_t* header = lv_obj_create(sound_settings_screen);
-    lv_obj_set_size(header, SCREEN_WIDTH, 50);
-    lv_obj_set_style_bg_color(header, lv_color_hex(0x333333), 0);
+    lv_obj_set_size(header, SCREEN_WIDTH, 60);
+    lv_obj_set_style_bg_color(header, lv_color_hex(0x4A90E2), 0);
+    lv_obj_set_style_bg_grad_color(header, lv_color_hex(0x357ABD), 0);
+    lv_obj_set_style_bg_grad_dir(header, LV_GRAD_DIR_VER, 0);
     lv_obj_t* title = lv_label_create(header);
     lv_label_set_text(title, "Sound Settings");
     lv_obj_add_style(title, &style_title, 0);
     lv_obj_align(title, LV_ALIGN_CENTER, 0, 0);
-
-    addWifiIndicator(sound_settings_screen);
-    addBatteryIndicator(sound_settings_screen);
 
     // Sound Toggle Switch
     lv_obj_t* sound_toggle_label = lv_label_create(sound_settings_screen);
@@ -3088,35 +3343,39 @@ void createSoundSettingsScreen() {
         createSettingsScreen();
     }, LV_EVENT_CLICKED, NULL);
 
-    lv_scr_load(sound_settings_screen);
     DEBUG_PRINT("Sound settings screen created");
 }
 
 void createBrightnessSettingsScreen() {
     DEBUG_PRINT("Entering createBrightnessSettingsScreen");
     
-    if (settings_screen) {
-        DEBUG_PRINTF("Cleaning and deleting existing settings_screen: %p\n", settings_screen);
-        lv_obj_clean(settings_screen);
-        lv_obj_del(settings_screen);
-        settings_screen = nullptr;
+    // Create a static variable for the brightness screen
+    static lv_obj_t* brightness_settings_screen = nullptr;
+    
+    // Clean up previous instance if it exists
+    if (brightness_settings_screen) {
+        DEBUG_PRINTF("Cleaning and deleting existing brightness_settings_screen: %p\n", brightness_settings_screen);
+        lv_obj_clean(brightness_settings_screen);
+        lv_obj_del(brightness_settings_screen);
+        brightness_settings_screen = nullptr;
         lv_task_handler();
         delay(10);
     }
     
-    settings_screen = lv_obj_create(NULL);
-    if (!settings_screen) {
-        DEBUG_PRINT("Failed to create settings_screen");
+    // Create a new screen
+    brightness_settings_screen = lv_obj_create(NULL);
+    if (!brightness_settings_screen) {
+        DEBUG_PRINT("Failed to create brightness_settings_screen");
         return;
     }
-    DEBUG_PRINTF("Created settings_screen: %p\n", settings_screen);
+    DEBUG_PRINTF("Created brightness_settings_screen: %p\n", brightness_settings_screen);
     
-    lv_obj_add_style(settings_screen, &style_screen, 0);
-    lv_scr_load(settings_screen);
+    lv_obj_add_style(brightness_settings_screen, &style_screen, 0);
+    lv_scr_load(brightness_settings_screen);
     DEBUG_PRINT("Screen loaded");
 
     // Header with gradient
-    lv_obj_t* header = lv_obj_create(settings_screen);
+    lv_obj_t* header = lv_obj_create(brightness_settings_screen);
     lv_obj_set_size(header, SCREEN_WIDTH, 60);
     lv_obj_set_style_bg_color(header, lv_color_hex(0x4A90E2), 0);
     lv_obj_set_style_bg_grad_color(header, lv_color_hex(0x357ABD), 0);
@@ -3125,13 +3384,9 @@ void createBrightnessSettingsScreen() {
     lv_label_set_text(title, "Display Brightness");
     lv_obj_add_style(title, &style_title, 0);
     lv_obj_align(title, LV_ALIGN_CENTER, 0, 0);
-
-    // Status indicators
-    addWifiIndicator(settings_screen);
-    addBatteryIndicator(settings_screen);
     
     // Container with subtle shadow
-    lv_obj_t* container = lv_obj_create(settings_screen);
+    lv_obj_t* container = lv_obj_create(brightness_settings_screen);
     lv_obj_set_size(container, 300, 200);
     lv_obj_align(container, LV_ALIGN_TOP_MID, 0, 70);
     lv_obj_set_style_bg_color(container, lv_color_hex(0x2A2A40), 0);
@@ -3226,21 +3481,6 @@ void createBrightnessSettingsScreen() {
         DEBUG_PRINTF("Brightness set to %d\n", displayBrightness);
     }, LV_EVENT_VALUE_CHANGED, NULL);
 
-    // Back button
-    lv_obj_t* back_btn = lv_btn_create(settings_screen);
-    lv_obj_set_size(back_btn, 140, 50);
-    lv_obj_align(back_btn, LV_ALIGN_BOTTOM_MID, 0, -20);
-    lv_obj_add_style(back_btn, &style_btn, 0);
-    lv_obj_add_style(back_btn, &style_btn_pressed, LV_STATE_PRESSED);
-    
-    lv_obj_t* back_label = lv_label_create(back_btn);
-    lv_label_set_text(back_label, "Back");
-    lv_obj_center(back_label);
-    
-    lv_obj_add_event_cb(back_btn, [](lv_event_t* e) {
-        createSettingsScreen();
-    }, LV_EVENT_CLICKED, NULL);
-    
     // Auto-brightness option
     lv_obj_t* auto_container = lv_obj_create(container);
     lv_obj_set_size(auto_container, 260, 50);
@@ -3294,5 +3534,762 @@ void createBrightnessSettingsScreen() {
         DEBUG_PRINTF("Auto brightness set to %d\n", auto_brightness);
     }, LV_EVENT_VALUE_CHANGED, NULL);
 
+    // Back button
+    lv_obj_t* back_btn = lv_btn_create(container); // Change from brightness_settings_screen to container
+    lv_obj_set_size(back_btn, 140, 50);
+    lv_obj_align(back_btn, LV_ALIGN_TOP_MID, 0, 200); // Position it below auto brightness
+    lv_obj_add_style(back_btn, &style_btn, 0);
+    lv_obj_add_style(back_btn, &style_btn_pressed, LV_STATE_PRESSED);
+    
+    lv_obj_t* back_label = lv_label_create(back_btn);
+    lv_label_set_text(back_label, "Back");
+    lv_obj_center(back_label);
+    
+    lv_obj_add_event_cb(back_btn, [](lv_event_t* e) {
+        createSettingsScreen();
+    }, LV_EVENT_CLICKED, NULL);
+    
     DEBUG_PRINT("Finished createBrightnessSettingsScreen");
+}
+// Create a function to show the WiFi loading screen
+void showWiFiLoadingScreen(const String& ssid) {
+    if (wifi_loading_screen != nullptr) {
+        lv_obj_del(wifi_loading_screen);
+    }
+    
+    wifi_loading_screen = lv_obj_create(NULL);
+    lv_obj_add_style(wifi_loading_screen, &style_screen, 0);
+    
+    // Create header
+    lv_obj_t* header = lv_obj_create(wifi_loading_screen);
+    lv_obj_set_size(header, SCREEN_WIDTH, 40);
+    lv_obj_align(header, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_set_style_bg_color(header, lv_color_hex(0x333333), 0);
+    lv_obj_t* title = lv_label_create(header);
+    lv_label_set_text(title, "WiFi Connection");
+    lv_obj_add_style(title, &style_title, 0);
+    lv_obj_align(title, LV_ALIGN_CENTER, 0, 0);
+    
+    // Create spinner
+    wifi_loading_spinner = lv_spinner_create(wifi_loading_screen, 1000, 60);
+    lv_obj_set_size(wifi_loading_spinner, 100, 100);
+    lv_obj_align(wifi_loading_spinner, LV_ALIGN_CENTER, 0, -20);
+    
+    // Create connecting label
+    wifi_loading_label = lv_label_create(wifi_loading_screen);
+    lv_label_set_text_fmt(wifi_loading_label, "Connecting to %s...", ssid.c_str());
+    lv_obj_align(wifi_loading_label, LV_ALIGN_CENTER, 0, 60);
+    
+    // Create result label (hidden initially)
+    wifi_result_label = lv_label_create(wifi_loading_screen);
+    lv_obj_set_style_text_font(wifi_result_label, &lv_font_montserrat_16, 0);
+    lv_label_set_text(wifi_result_label, "");
+    lv_obj_align(wifi_result_label, LV_ALIGN_CENTER, 0, 90);
+    lv_obj_add_flag(wifi_result_label, LV_OBJ_FLAG_HIDDEN);
+    
+    // Create back button (hidden initially)
+    lv_obj_t* back_btn = lv_btn_create(wifi_loading_screen);
+    lv_obj_set_size(back_btn, 120, 40);
+    lv_obj_align(back_btn, LV_ALIGN_BOTTOM_MID, 0, -20);
+    lv_obj_add_style(back_btn, &style_btn, 0);
+    lv_obj_add_flag(back_btn, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_t* back_label = lv_label_create(back_btn);
+    lv_label_set_text(back_label, "Back");
+    lv_obj_center(back_label);
+    lv_obj_add_event_cb(back_btn, [](lv_event_t* e) {
+        createWiFiManagerScreen();
+    }, LV_EVENT_CLICKED, NULL);
+    
+    // Store back button reference for later use
+    lv_obj_set_user_data(wifi_loading_screen, back_btn);
+    
+    lv_scr_load(wifi_loading_screen);
+}
+// Function to update the WiFi loading screen based on connection result
+void updateWiFiLoadingScreen(bool success, const String& message) {
+    if (wifi_loading_screen == nullptr || !lv_obj_is_valid(wifi_loading_screen)) {
+        return;
+    }
+    
+    // Hide spinner
+    if (wifi_loading_spinner != nullptr && lv_obj_is_valid(wifi_loading_spinner)) {
+        lv_obj_add_flag(wifi_loading_spinner, LV_OBJ_FLAG_HIDDEN);
+    }
+    
+    // Update result label
+    if (wifi_result_label != nullptr && lv_obj_is_valid(wifi_result_label)) {
+        lv_obj_clear_flag(wifi_result_label, LV_OBJ_FLAG_HIDDEN);
+        lv_label_set_text(wifi_result_label, message.c_str());
+        lv_obj_set_style_text_color(wifi_result_label, 
+            success ? lv_color_hex(0x00FF00) : lv_color_hex(0xFF0000), 0);
+    }
+    
+    // Show back button
+    lv_obj_t* back_btn = (lv_obj_t*)lv_obj_get_user_data(wifi_loading_screen);
+    if (back_btn != nullptr && lv_obj_is_valid(back_btn)) {
+        lv_obj_clear_flag(back_btn, LV_OBJ_FLAG_HIDDEN);
+    }
+    
+    // Auto return to WiFi manager screen after successful connection
+    if (success) {
+        static lv_timer_t* return_timer = nullptr;
+        if (return_timer != nullptr) {
+            lv_timer_del(return_timer);
+        }
+        return_timer = lv_timer_create([](lv_timer_t* timer) {
+            createWiFiManagerScreen();
+            lv_timer_del(timer);
+        }, 2000, NULL);
+    }
+}
+
+// Function to add a time display to a screen// Implementation of time display
+void addTimeDisplay(lv_obj_t *screen) {
+    lv_obj_t* time_card = lv_obj_create(screen);
+    lv_obj_set_size(time_card, 180, 40);
+    lv_obj_align(time_card, LV_ALIGN_TOP_MID, 0, 10);
+    lv_obj_add_style(time_card, &style_card_info, 0);
+
+    lv_obj_t* time_icon = lv_label_create(time_card);
+    lv_label_set_text(time_icon, LV_SYMBOL_REFRESH);
+    lv_obj_set_style_text_font(time_icon, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(time_icon, lv_color_hex(0x4A90E2), 0);
+    lv_obj_align(time_icon, LV_ALIGN_LEFT_MID, 15, 0);
+
+    time_label = lv_label_create(time_card);
+    lv_obj_set_style_text_font(time_label, &lv_font_montserrat_16, 0);
+    lv_obj_align(time_label, LV_ALIGN_CENTER, 10, 0);
+
+    updateTimeDisplay(); // Initial update
+}
+
+void updateTimeDisplay() {
+    if (time_label == nullptr) return;
+
+    m5::rtc_time_t TimeStruct;
+    M5.Rtc.getTime(&TimeStruct);
+    
+    // Convert 24-hour to 12-hour format
+    int hour = TimeStruct.hours;
+    const char* period = (hour >= 12) ? "PM" : "AM";
+    if (hour == 0) {
+        hour = 12; // Midnight
+    } else if (hour > 12) {
+        hour -= 12;
+    }
+
+    char timeStr[24];
+    snprintf(timeStr, sizeof(timeStr), "%d:%02d:%02d %s", 
+             hour, TimeStruct.minutes, TimeStruct.seconds, period);
+    lv_label_set_text(time_label, timeStr);
+}
+
+// Add this new function for the Power Management screen
+void createPowerManagementScreen() {
+    lv_obj_t* power_screen = lv_obj_create(NULL);
+    lv_obj_add_style(power_screen, &style_screen, 0);
+    
+    // Header
+    lv_obj_t* header = lv_obj_create(power_screen);
+    lv_obj_set_size(header, SCREEN_WIDTH, 40);
+    lv_obj_set_style_bg_color(header, lv_color_hex(0x333333), 0);
+    lv_obj_set_style_bg_opa(header, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(header, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t* title = lv_label_create(header);
+    lv_label_set_text(title, "Power Management");
+    lv_obj_add_style(title, &style_title, 0);
+    lv_obj_align(title, LV_ALIGN_CENTER, 0, 0);
+    
+    // Container for buttons
+    lv_obj_t* container = lv_obj_create(power_screen);
+    lv_obj_set_size(container, SCREEN_WIDTH - 20, SCREEN_HEIGHT - 60);
+    lv_obj_align(container, LV_ALIGN_TOP_MID, 0, 50);
+    lv_obj_set_style_bg_color(container, lv_color_hex(0x222222), 0);
+    lv_obj_set_style_bg_opa(container, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(container, 0, 0);
+    lv_obj_set_style_pad_all(container, 10, 0);
+    lv_obj_set_flex_flow(container, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(container, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(container, 15, 0);
+    
+    // Power Off Button
+    lv_obj_t* power_off_btn = lv_btn_create(container);
+    lv_obj_set_size(power_off_btn, 280, 60);
+    lv_obj_add_style(power_off_btn, &style_btn, 0);
+    lv_obj_add_style(power_off_btn, &style_btn_pressed, LV_STATE_PRESSED);
+    lv_obj_set_style_bg_color(power_off_btn, lv_color_hex(0xE74C3C), 0); // Red color
+    
+    lv_obj_t* power_off_label = lv_label_create(power_off_btn);
+    lv_label_set_text(power_off_label, LV_SYMBOL_POWER " Power Off");
+    lv_obj_set_style_text_font(power_off_label, &lv_font_montserrat_20, 0);
+    lv_obj_center(power_off_label);
+    
+    // Restart Button
+    lv_obj_t* restart_btn = lv_btn_create(container);
+    lv_obj_set_size(restart_btn, 280, 60);
+    lv_obj_add_style(restart_btn, &style_btn, 0);
+    lv_obj_add_style(restart_btn, &style_btn_pressed, LV_STATE_PRESSED);
+    lv_obj_set_style_bg_color(restart_btn, lv_color_hex(0xF39C12), 0); // Orange color
+    
+    lv_obj_t* restart_label = lv_label_create(restart_btn);
+    lv_label_set_text(restart_label, LV_SYMBOL_REFRESH " Restart");
+    lv_obj_set_style_text_font(restart_label, &lv_font_montserrat_20, 0);
+    lv_obj_center(restart_label);
+    
+    // Sleep Button
+    lv_obj_t* sleep_btn = lv_btn_create(container);
+    lv_obj_set_size(sleep_btn, 280, 60);
+    lv_obj_add_style(sleep_btn, &style_btn, 0);
+    lv_obj_add_style(sleep_btn, &style_btn_pressed, LV_STATE_PRESSED);
+    lv_obj_set_style_bg_color(sleep_btn, lv_color_hex(0x3498DB), 0); // Blue color
+    
+    lv_obj_t* sleep_label = lv_label_create(sleep_btn);
+    lv_label_set_text(sleep_label, LV_SYMBOL_DOWNLOAD " Sleep Mode");
+    lv_obj_set_style_text_font(sleep_label, &lv_font_montserrat_20, 0);
+    lv_obj_center(sleep_label);
+    
+    // Back Button
+    lv_obj_t* back_btn = lv_btn_create(container);
+    lv_obj_set_size(back_btn, 140, 50);
+    lv_obj_add_style(back_btn, &style_btn, 0);
+    lv_obj_add_style(back_btn, &style_btn_pressed, LV_STATE_PRESSED);
+    
+    lv_obj_t* back_label = lv_label_create(back_btn);
+    lv_label_set_text(back_label, "Back");
+    lv_obj_center(back_label);
+    
+    // Event handlers
+    lv_obj_add_event_cb(power_off_btn, [](lv_event_t* e) {
+        // Create countdown screen
+        lv_obj_t* countdown_screen = lv_obj_create(NULL);
+        lv_obj_add_style(countdown_screen, &style_screen, 0);
+        lv_scr_load(countdown_screen);
+        
+        lv_obj_t* countdown_label = lv_label_create(countdown_screen);
+        lv_obj_set_style_text_font(countdown_label, &lv_font_montserrat_24, 0);
+        lv_obj_align(countdown_label, LV_ALIGN_CENTER, 0, 0);
+        
+        // Countdown from 3 to 1
+        for (int i = 3; i > 0; i--) {
+            lv_label_set_text_fmt(countdown_label, "Powering off in %d...", i);
+            lv_task_handler();
+            delay(1000);
+        }
+        
+        // Power off
+        M5.Lcd.fillScreen(TFT_BLACK);
+        M5.Lcd.sleep();
+        M5.Lcd.waitDisplay();
+        
+        // Use AXP to power off
+        M5.In_I2C.bitOn(AXP2101_ADDR, 0x41, 1 << 1, 100000L);
+        M5.In_I2C.writeRegister8(AXP2101_ADDR, 0x25, 0b00011011, 100000L);
+        M5.In_I2C.writeRegister8(AXP2101_ADDR, 0x10, 0b00110001, 100000L);
+        
+    }, LV_EVENT_CLICKED, NULL);
+    
+    lv_obj_add_event_cb(restart_btn, [](lv_event_t* e) {
+        // Create countdown screen
+        lv_obj_t* countdown_screen = lv_obj_create(NULL);
+        lv_obj_add_style(countdown_screen, &style_screen, 0);
+        lv_scr_load(countdown_screen);
+        
+        lv_obj_t* countdown_label = lv_label_create(countdown_screen);
+        lv_obj_set_style_text_font(countdown_label, &lv_font_montserrat_24, 0);
+        lv_obj_align(countdown_label, LV_ALIGN_CENTER, 0, 0);
+        
+        // Countdown from 3 to 1
+        for (int i = 3; i > 0; i--) {
+            lv_label_set_text_fmt(countdown_label, "Restarting in %d...", i);
+            lv_task_handler();
+            delay(1000);
+        }
+        
+        // Restart
+        ESP.restart();
+        
+    }, LV_EVENT_CLICKED, NULL);
+    
+    lv_obj_add_event_cb(sleep_btn, [](lv_event_t* e) {
+        // Create sleep screen
+        lv_obj_t* sleep_screen = lv_obj_create(NULL);
+        lv_obj_add_style(sleep_screen, &style_screen, 0);
+        lv_scr_load(sleep_screen);
+        
+        lv_obj_t* sleep_label = lv_label_create(sleep_screen);
+        lv_obj_set_style_text_font(sleep_label, &lv_font_montserrat_24, 0);
+        lv_obj_align(sleep_label, LV_ALIGN_CENTER, 0, 0);
+        lv_label_set_text(sleep_label, "Entering sleep mode...\nTouch screen to wake");
+        lv_task_handler();
+        delay(2000);
+        
+        // Prepare for deep sleep
+        // INTEN_P0 TF_DETECT ES7210 EN[0] DIS[1]
+        M5.In_I2C.writeRegister8(AW9523_ADDR, 0x06, 0b11111111, 100000L);
+        // INTEN_P1 AW88298 FT6336 EN[0] DIS[1] Clear INT
+        M5.In_I2C.writeRegister8(AW9523_ADDR, 0x07, 0b11111011, 100000L);
+        M5.In_I2C.readRegister8(AW9523_ADDR, 0x00, 100000L);
+        M5.In_I2C.readRegister8(AW9523_ADDR, 0x01, 100000L);
+        
+        pinMode(21, INPUT_PULLUP);
+        
+        // GPIO21 <- AW9523 INT <- AW9523 P1.2 <- Touch INT
+        esp_sleep_enable_ext0_wakeup(GPIO_NUM_21, 0);
+        M5.Lcd.fillScreen(TFT_BLACK);
+        M5.Lcd.sleep();
+        M5.Lcd.waitDisplay();
+        esp_deep_sleep_start();
+        
+    }, LV_EVENT_CLICKED, NULL);
+    
+    lv_obj_add_event_cb(back_btn, [](lv_event_t* e) {
+        createMainMenu();
+    }, LV_EVENT_CLICKED, NULL);
+    
+    lv_scr_load(power_screen);
+}
+
+// Static function to save the time to RTC
+static void save_time_to_rtc() {
+    DEBUG_PRINTF("Saving time: %04d-%02d-%02d %02d:%02d:00\n",
+                 selected_date.year, selected_date.month, selected_date.day,
+                 selected_hour, selected_minute);
+
+    // Construct the date and time structs
+    m5::rtc_date_t DateStruct;
+    DateStruct.year = selected_date.year;
+    DateStruct.month = selected_date.month;
+    DateStruct.date = selected_date.day;
+    
+    // Simple weekday calculation (not perfect but better than 0)
+    // Using Zeller's Congruence algorithm
+    int q = selected_date.day;
+    int m = selected_date.month;
+    int y = selected_date.year;
+    if (m < 3) {
+        m += 12;
+        y--;
+    }
+    int h = (q + (13 * (m + 1)) / 5 + y + y / 4 - y / 100 + y / 400) % 7;
+    DateStruct.weekDay = (h + 1) % 7; // Convert to 0-6 range where 0 is Sunday
+    
+    M5.Rtc.setDate(&DateStruct);
+
+    m5::rtc_time_t TimeStruct;
+    TimeStruct.hours = selected_hour;
+    TimeStruct.minutes = selected_minute;
+    TimeStruct.seconds = 0;
+    M5.Rtc.setTime(&TimeStruct);
+
+    setSystemTimeFromRTC();
+    DEBUG_PRINT("Time saved to RTC successfully");
+}
+
+// Improved date selection screen
+static void createDateSelectionScreen() {
+    static lv_obj_t* date_screen = nullptr;
+    if (date_screen) {
+        lv_obj_del(date_screen);
+        date_screen = nullptr;
+    }
+    date_screen = lv_obj_create(NULL);
+    lv_obj_add_style(date_screen, &style_screen, 0);
+
+    // Header
+    lv_obj_t* header = lv_obj_create(date_screen);
+    lv_obj_set_size(header, SCREEN_WIDTH, 40);
+    lv_obj_set_style_bg_color(header, lv_color_hex(0x333333), 0);
+    lv_obj_t* title = lv_label_create(header);
+    lv_label_set_text(title, "Set Date");
+    lv_obj_add_style(title, &style_title, 0);
+    lv_obj_align(title, LV_ALIGN_CENTER, 0, 0);
+
+    // Container - reduced height to make room for buttons below
+    lv_obj_t* container = lv_obj_create(date_screen);
+    lv_obj_set_size(container, SCREEN_WIDTH - 20, SCREEN_HEIGHT - 100);  // Changed height from -60 to -100
+    lv_obj_align(container, LV_ALIGN_TOP_MID, 0, 50);
+    lv_obj_set_style_bg_opa(container, LV_OPA_TRANSP, 0);
+
+    // Get current date from RTC
+    m5::rtc_date_t DateStruct;
+    M5.Rtc.getDate(&DateStruct);
+
+    // Update the selected date with the current RTC values
+    selected_date.year = DateStruct.year;
+    selected_date.month = DateStruct.month;
+    selected_date.day = DateStruct.date;
+
+    // Current date display
+    lv_obj_t* current_date_label = lv_label_create(container);
+    char date_str[32];
+    snprintf(date_str, sizeof(date_str), "Current Date: %04d-%02d-%02d", 
+             DateStruct.year, DateStruct.month, DateStruct.date);
+    lv_label_set_text(current_date_label, date_str);
+    lv_obj_set_style_text_font(current_date_label, &lv_font_montserrat_16, 0);
+    lv_obj_align(current_date_label, LV_ALIGN_TOP_MID, 0, 0);
+
+    // Year picker
+    lv_obj_t* year_label = lv_label_create(container);
+    lv_label_set_text(year_label, "Year:");
+    lv_obj_align(year_label, LV_ALIGN_TOP_LEFT, 10, 30);
+    
+    g_year_roller = lv_roller_create(container);
+    // Create years from 2020 to 2040
+    char years_str[512] = {0};
+    for (int year = 2020; year <= 2040; year++) {
+        char year_str[8];
+        snprintf(year_str, sizeof(year_str), "%04d\n", year);
+        strcat(years_str, year_str);
+    }
+    // Remove trailing newline
+    if (strlen(years_str) > 0) {
+        years_str[strlen(years_str) - 1] = '\0';
+    }
+    
+    lv_roller_set_options(g_year_roller, years_str, LV_ROLLER_MODE_NORMAL);
+    lv_roller_set_visible_row_count(g_year_roller, 3);
+    lv_obj_set_width(g_year_roller, 100);
+    lv_obj_align(g_year_roller, LV_ALIGN_TOP_LEFT, 10, 55);
+    
+    // Set to current year
+    lv_roller_set_selected(g_year_roller, DateStruct.year - 2020, LV_ANIM_OFF);
+    
+    // Month picker - similar setup
+    lv_obj_t* month_label = lv_label_create(container);
+    lv_label_set_text(month_label, "Month:");
+    lv_obj_align(month_label, LV_ALIGN_TOP_MID, 0, 30);
+    
+    g_month_roller = lv_roller_create(container);
+    lv_roller_set_options(g_month_roller, 
+                        "01-Jan\n02-Feb\n03-Mar\n04-Apr\n05-May\n06-Jun\n"
+                        "07-Jul\n08-Aug\n09-Sep\n10-Oct\n11-Nov\n12-Dec", 
+                        LV_ROLLER_MODE_NORMAL);
+    lv_roller_set_visible_row_count(g_month_roller, 3);
+    lv_obj_set_width(g_month_roller, 100);
+    lv_obj_align(g_month_roller, LV_ALIGN_TOP_MID, 0, 55);
+    
+    // Set to current month
+    lv_roller_set_selected(g_month_roller, DateStruct.month - 1, LV_ANIM_OFF);
+    
+    // Day picker - similar setup
+    lv_obj_t* day_label = lv_label_create(container);
+    lv_label_set_text(day_label, "Day:");
+    lv_obj_align(day_label, LV_ALIGN_TOP_RIGHT, -10, 30);
+    
+    g_day_roller = lv_roller_create(container);
+    // Create days from 1 to 31
+    char days_str[256] = {0};
+    for (int day = 1; day <= 31; day++) {
+        char day_str[8];
+        snprintf(day_str, sizeof(day_str), "%02d\n", day);
+        strcat(days_str, day_str);
+    }
+    // Remove trailing newline
+    if (strlen(days_str) > 0) {
+        days_str[strlen(days_str) - 1] = '\0';
+    }
+    
+    lv_roller_set_options(g_day_roller, days_str, LV_ROLLER_MODE_NORMAL);
+    lv_roller_set_visible_row_count(g_day_roller, 3);
+    lv_obj_set_width(g_day_roller, 100);
+    lv_obj_align(g_day_roller, LV_ALIGN_TOP_RIGHT, -10, 55);
+    
+    // Set to current day
+    lv_roller_set_selected(g_day_roller, DateStruct.date - 1, LV_ANIM_OFF);
+    
+    // Display selected date
+    g_selected_date_label = lv_label_create(container);
+    lv_obj_set_style_text_font(g_selected_date_label, &lv_font_montserrat_16, 0);
+    lv_obj_align(g_selected_date_label, LV_ALIGN_TOP_MID, 0, 120);
+    
+    // Initial update
+    static auto updateSelectedDateFunc = []() {
+        int year = 2020 + lv_roller_get_selected(g_year_roller);
+        int month = lv_roller_get_selected(g_month_roller) + 1;
+        int day = lv_roller_get_selected(g_day_roller) + 1;
+        
+        // Update the global selected_date variable
+        selected_date.year = year;
+        selected_date.month = month;
+        selected_date.day = day;
+        
+        char date_str[64];
+        snprintf(date_str, sizeof(date_str), "Selected: %04d-%02d-%02d", year, month, day);
+        lv_label_set_text(g_selected_date_label, date_str);
+    };
+    
+    updateSelectedDateFunc();
+    
+    // Event handlers for roller changes - using global callback functions instead of lambdas
+    lv_obj_add_event_cb(g_year_roller, on_year_change, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_add_event_cb(g_month_roller, on_month_change, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_add_event_cb(g_day_roller, on_day_change, LV_EVENT_VALUE_CHANGED, NULL);
+    
+    // Continue button - moved outside container and positioned lower
+    lv_obj_t* continue_btn = lv_btn_create(date_screen);  // Changed parent to date_screen
+    lv_obj_set_size(continue_btn, 120, 40);
+    lv_obj_align(continue_btn, LV_ALIGN_BOTTOM_RIGHT, -10, -10);
+    lv_obj_add_style(continue_btn, &style_btn, 0);
+    lv_obj_add_style(continue_btn, &style_btn_pressed, LV_STATE_PRESSED);
+    lv_obj_t* continue_label = lv_label_create(continue_btn);
+    lv_label_set_text(continue_label, "Next");
+    lv_obj_center(continue_label);
+    
+    lv_obj_add_event_cb(continue_btn, [](lv_event_t* e) {
+        createTimeSelectionScreen();
+    }, LV_EVENT_CLICKED, NULL);
+    
+    // Back button - moved outside container and positioned lower
+    lv_obj_t* back_btn = lv_btn_create(date_screen);  // Changed parent to date_screen
+    lv_obj_set_size(back_btn, 120, 40);
+    lv_obj_align(back_btn, LV_ALIGN_BOTTOM_LEFT, 10, -10);
+    lv_obj_add_style(back_btn, &style_btn, 0);
+    lv_obj_add_style(back_btn, &style_btn_pressed, LV_STATE_PRESSED);
+    lv_obj_t* back_label = lv_label_create(back_btn);
+    lv_label_set_text(back_label, "Back");
+    lv_obj_center(back_label);
+    
+    lv_obj_add_event_cb(back_btn, [](lv_event_t* e) {
+        createSettingsScreen();
+    }, LV_EVENT_CLICKED, NULL);
+    
+    lv_scr_load(date_screen);
+}
+
+// Improved time selection screen
+static void createTimeSelectionScreen() {
+    static lv_obj_t* time_screen = nullptr;
+    if (time_screen) {
+        lv_obj_del(time_screen);
+        time_screen = nullptr;
+    }
+    time_screen = lv_obj_create(NULL);
+    lv_obj_add_style(time_screen, &style_screen, 0);
+
+    // Header
+    lv_obj_t* header = lv_obj_create(time_screen);
+    lv_obj_set_size(header, SCREEN_WIDTH, 40);
+    lv_obj_set_style_bg_color(header, lv_color_hex(0x333333), 0);
+    lv_obj_t* title = lv_label_create(header);
+    lv_label_set_text(title, "Set Time");
+    lv_obj_add_style(title, &style_title, 0);
+    lv_obj_align(title, LV_ALIGN_CENTER, 0, 0);
+
+    // Container - reduced height to make room for buttons below
+    lv_obj_t* container = lv_obj_create(time_screen);
+    lv_obj_set_size(container, SCREEN_WIDTH - 20, SCREEN_HEIGHT - 100);  // Changed height from -60 to -100
+    lv_obj_align(container, LV_ALIGN_TOP_MID, 0, 50);
+    lv_obj_set_style_bg_opa(container, LV_OPA_TRANSP, 0);
+
+    // Get current time from RTC
+    m5::rtc_time_t TimeStruct;
+    M5.Rtc.getTime(&TimeStruct);
+
+    // Current date display
+    lv_obj_t* date_label = lv_label_create(container);
+    char date_str[32];
+    m5::rtc_date_t DateStruct;
+    M5.Rtc.getDate(&DateStruct);
+    snprintf(date_str, sizeof(date_str), "Date: %04d-%02d-%02d", 
+             selected_date.year, selected_date.month, selected_date.day);
+    lv_label_set_text(date_label, date_str);
+    lv_obj_set_style_text_font(date_label, &lv_font_montserrat_16, 0);
+    lv_obj_align(date_label, LV_ALIGN_TOP_MID, 0, 0);
+
+    // Current time display
+    lv_obj_t* current_time_label = lv_label_create(container);
+    char time_str[32];
+    snprintf(time_str, sizeof(time_str), "Current Time: %02d:%02d:%02d", 
+             TimeStruct.hours, TimeStruct.minutes, TimeStruct.seconds);
+    lv_label_set_text(current_time_label, time_str);
+    lv_obj_set_style_text_font(current_time_label, &lv_font_montserrat_16, 0);
+    lv_obj_align(current_time_label, LV_ALIGN_TOP_MID, 0, 30);
+
+    // Hour picker
+    lv_obj_t* hour_label = lv_label_create(container);
+    lv_label_set_text(hour_label, "Hour:");
+    lv_obj_align(hour_label, LV_ALIGN_TOP_LEFT, 20, 70);
+    
+    g_hour_roller = lv_roller_create(container);
+    // Create hours from 0 to 23
+    char hours_str[128] = {0};
+    for (int hour = 0; hour <= 23; hour++) {
+        char hour_str[8];
+        snprintf(hour_str, sizeof(hour_str), "%02d\n", hour);
+        strcat(hours_str, hour_str);
+    }
+    // Remove trailing newline
+    if (strlen(hours_str) > 0) {
+        hours_str[strlen(hours_str) - 1] = '\0';
+    }
+    
+    lv_roller_set_options(g_hour_roller, hours_str, LV_ROLLER_MODE_NORMAL);
+    lv_roller_set_visible_row_count(g_hour_roller, 3);
+    lv_obj_set_width(g_hour_roller, 80);
+    lv_obj_align(g_hour_roller, LV_ALIGN_TOP_LEFT, 20, 95);
+    
+    // Set to current hour
+    lv_roller_set_selected(g_hour_roller, TimeStruct.hours, LV_ANIM_OFF);
+    selected_hour = TimeStruct.hours;
+    
+    // Minute picker
+    lv_obj_t* minute_label = lv_label_create(container);
+    lv_label_set_text(minute_label, "Minute:");
+    lv_obj_align(minute_label, LV_ALIGN_TOP_RIGHT, -20, 70);
+    
+    g_minute_roller = lv_roller_create(container);
+    // Create minutes from 0 to 59
+    char minutes_str[256] = {0};
+    for (int minute = 0; minute <= 59; minute++) {
+        char minute_str[8];
+        snprintf(minute_str, sizeof(minute_str), "%02d\n", minute);
+        strcat(minutes_str, minute_str);
+    }
+    // Remove trailing newline
+    if (strlen(minutes_str) > 0) {
+        minutes_str[strlen(minutes_str) - 1] = '\0';
+    }
+    
+    lv_roller_set_options(g_minute_roller, minutes_str, LV_ROLLER_MODE_NORMAL);
+    lv_roller_set_visible_row_count(g_minute_roller, 3);
+    lv_obj_set_width(g_minute_roller, 80);
+    lv_obj_align(g_minute_roller, LV_ALIGN_TOP_RIGHT, -20, 95);
+    
+    // Set to current minute
+    lv_roller_set_selected(g_minute_roller, TimeStruct.minutes, LV_ANIM_OFF);
+    selected_minute = TimeStruct.minutes;
+    
+    // Display selected time
+    g_selected_time_label = lv_label_create(container);
+    lv_obj_set_style_text_font(g_selected_time_label, &lv_font_montserrat_16, 0);
+    lv_obj_align(g_selected_time_label, LV_ALIGN_TOP_MID, 0, 150);
+    
+    // Event handlers for roller changes - using global callback functions
+    lv_obj_add_event_cb(g_hour_roller, on_hour_change, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_add_event_cb(g_minute_roller, on_minute_change, LV_EVENT_VALUE_CHANGED, NULL);
+    
+    // Initial update of selected time display
+    char selected_time_str[32];
+    snprintf(selected_time_str, sizeof(selected_time_str), "Selected: %02d:%02d", 
+             selected_hour, selected_minute);
+    lv_label_set_text(g_selected_time_label, selected_time_str);
+    
+    // Save button - simplified approach without confirmation dialog
+    lv_obj_t* save_btn = lv_btn_create(time_screen);
+    lv_obj_set_size(save_btn, 120, 40);
+    lv_obj_align(save_btn, LV_ALIGN_BOTTOM_RIGHT, -10, -10);
+    lv_obj_add_style(save_btn, &style_btn, 0);
+    lv_obj_add_style(save_btn, &style_btn_pressed, LV_STATE_PRESSED);
+    lv_obj_set_style_bg_color(save_btn, lv_color_hex(0x00AA00), 0); // Green color
+    lv_obj_t* save_label = lv_label_create(save_btn);
+    lv_label_set_text(save_label, "Save");
+    lv_obj_center(save_label);
+    
+    lv_obj_add_event_cb(save_btn, [](lv_event_t* e) {
+        // Show a temporary "Saving..." message
+        lv_obj_t* saving_label = lv_label_create(lv_scr_act());
+        lv_label_set_text(saving_label, "Saving...");
+        lv_obj_set_style_text_font(saving_label, &lv_font_montserrat_16, 0);
+        lv_obj_center(saving_label);
+        
+        // Process the label creation immediately
+        lv_task_handler();
+        
+        // Save the time to RTC
+        save_time_to_rtc();
+        
+        // Use a safe timer to navigate back to settings
+        lv_timer_t* timer = lv_timer_create([](lv_timer_t* t) {
+            // Navigate back to settings screen
+            if (lv_scr_act()) {
+                createSettingsScreen();
+            }
+            lv_timer_del(t);
+        }, 500, NULL);
+    }, LV_EVENT_CLICKED, NULL);
+    
+    // Back button - moved outside container and positioned lower
+    lv_obj_t* back_btn = lv_btn_create(time_screen);  // Changed parent to time_screen
+    lv_obj_set_size(back_btn, 120, 40);
+    lv_obj_align(back_btn, LV_ALIGN_BOTTOM_LEFT, 10, -10);
+    lv_obj_add_style(back_btn, &style_btn, 0);
+    lv_obj_add_style(back_btn, &style_btn_pressed, LV_STATE_PRESSED);
+    lv_obj_t* back_label = lv_label_create(back_btn);
+    lv_label_set_text(back_label, "Back");
+    lv_obj_center(back_label);
+    
+    lv_obj_add_event_cb(back_btn, [](lv_event_t* e) {
+        createDateSelectionScreen();
+    }, LV_EVENT_CLICKED, NULL);
+    
+    lv_scr_load(time_screen);
+}
+
+// Define the callback functions for date selection
+static void on_year_change(lv_event_t* e) {
+    // Update the selected date when year changes
+    int year = 2020 + lv_roller_get_selected(g_year_roller);
+    int month = lv_roller_get_selected(g_month_roller) + 1;
+    int day = lv_roller_get_selected(g_day_roller) + 1;
+    
+    selected_date.year = year;
+    selected_date.month = month;
+    selected_date.day = day;
+    
+    char date_str[64];
+    snprintf(date_str, sizeof(date_str), "Selected: %04d-%02d-%02d", year, month, day);
+    lv_label_set_text(g_selected_date_label, date_str);
+}
+
+static void on_month_change(lv_event_t* e) {
+    // Update the selected date when month changes
+    int year = 2020 + lv_roller_get_selected(g_year_roller);
+    int month = lv_roller_get_selected(g_month_roller) + 1;
+    int day = lv_roller_get_selected(g_day_roller) + 1;
+    
+    selected_date.year = year;
+    selected_date.month = month;
+    selected_date.day = day;
+    
+    char date_str[64];
+    snprintf(date_str, sizeof(date_str), "Selected: %04d-%02d-%02d", year, month, day);
+    lv_label_set_text(g_selected_date_label, date_str);
+}
+
+static void on_day_change(lv_event_t* e) {
+    // Update the selected date when day changes
+    int year = 2020 + lv_roller_get_selected(g_year_roller);
+    int month = lv_roller_get_selected(g_month_roller) + 1;
+    int day = lv_roller_get_selected(g_day_roller) + 1;
+    
+    selected_date.year = year;
+    selected_date.month = month;
+    selected_date.day = day;
+    
+    char date_str[64];
+    snprintf(date_str, sizeof(date_str), "Selected: %04d-%02d-%02d", year, month, day);
+    lv_label_set_text(g_selected_date_label, date_str);
+}
+
+// Define the callback functions for time selection
+static void on_hour_change(lv_event_t* e) {
+    // Update selected hour when hour roller changes
+    selected_hour = lv_roller_get_selected(g_hour_roller);
+    
+    // Update the displayed time
+    char selected_time_str[32];
+    snprintf(selected_time_str, sizeof(selected_time_str), "Selected: %02d:%02d", 
+             selected_hour, selected_minute);
+    lv_label_set_text(g_selected_time_label, selected_time_str);
+}
+
+static void on_minute_change(lv_event_t* e) {
+    // Update selected minute when minute roller changes
+    selected_minute = lv_roller_get_selected(g_minute_roller);
+    
+    // Update the displayed time
+    char selected_time_str[32];
+    snprintf(selected_time_str, sizeof(selected_time_str), "Selected: %02d:%02d", 
+             selected_hour, selected_minute);
+    lv_label_set_text(g_selected_time_label, selected_time_str);
 }

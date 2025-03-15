@@ -5,6 +5,7 @@
 
 #include <stdint.h>
 
+
 /*====================
    COLOR SETTINGS
  *====================*/
@@ -99,21 +100,21 @@
  * EXTRA COMPONENTS
  *================*/
 
-#define LV_USE_CALENDAR   0
-#define LV_USE_CHART      0    // Changed to 0, not using charts currently
-#define LV_USE_COLORWHEEL 0
-#define LV_USE_IMGBTN     0
-#define LV_USE_KEYBOARD   1
-#define LV_USE_LED        0
-#define LV_USE_LIST       1
-#define LV_USE_MENU       0
-#define LV_USE_METER      0
-#define LV_USE_MSGBOX     1    // Need this for dialogs
-#define LV_USE_SPINBOX    0
-#define LV_USE_SPINNER    1
-#define LV_USE_TABVIEW    1
-#define LV_USE_TILEVIEW   1
-#define LV_USE_WIN        0
+#define LV_USE_CALENDAR    1   // Changed from 0 to 1 to enable the calendar component
+#define LV_USE_CHART       1   
+#define LV_USE_COLORWHEEL  0
+#define LV_USE_IMGBTN      0
+#define LV_USE_KEYBOARD    1
+#define LV_USE_LED         1
+#define LV_USE_LIST        1
+#define LV_USE_MENU        0
+#define LV_USE_METER       1
+#define LV_USE_MSGBOX      1    // Need this for dialogs
+#define LV_USE_SPINBOX     0
+#define LV_USE_SPINNER     1
+#define LV_USE_TABVIEW     1
+#define LV_USE_TILEVIEW    1
+#define LV_USE_WIN         0
 
 #endif /*LV_CONF_H*/
 

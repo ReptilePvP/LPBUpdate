@@ -101,7 +101,7 @@
  * EXTRA COMPONENTS
  *================*/
 
-#define LV_USE_CALENDAR   0
+#define LV_USE_CALENDAR   1   // Changed from 0 to 1 to enable calendar component
 #define LV_USE_CHART      0    // Changed to 0, not using charts currently
 #define LV_USE_COLORWHEEL 0
 #define LV_USE_IMGBTN     0

@@ -204,7 +204,6 @@
  C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/WiFi/src/WiFiUdp.h \
  C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/Network/src/NetworkUdp.h \
  C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/Preferences/src/Preferences.h \
- .pio/libdeps/m5stack-cores3/ESP32Time/ESP32Time.h \
  C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/HTTPClient/src/HTTPClient.h \
  C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/NetworkClientSecure/src/NetworkClientSecure.h \
  C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/NetworkClientSecure/src/ssl_client.h \

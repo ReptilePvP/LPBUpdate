@@ -231,4 +231,5 @@
  .pio/libdeps/m5stack-cores3/lvgl/src/extra/widgets/calendar/../../../../src/extra/widgets/imgbtn/lv_imgbtn.h \
  .pio/libdeps/m5stack-cores3/lvgl/src/extra/widgets/calendar/../../../../src/extra/widgets/imgbtn/../../../lvgl.h \
  .pio/libdeps/m5stack-cores3/lvgl/src/extra/widgets/calendar/../../../../src/extra/widgets/span/lv_span.h \
- .pio/libdeps/m5stack-cores3/lvgl/src/extra/widgets/calendar/../../../../src/extra/widgets/span/../../../lvgl.h
+ .pio/libdeps/m5stack-cores3/lvgl/src/extra/widgets/calendar/../../../../src/extra/widgets/span/../../../lvgl.h \
+ .pio/libdeps/m5stack-cores3/lvgl/src/extra/widgets/calendar/../../../misc/lv_assert.h
