@@ -5,6 +5,10 @@
 
 #include <stdint.h>
 
+// Custom LVGL symbol definitions
+#define LV_SYMBOL_LOCK "\xEF\x80\xA3"       // Lock icon
+#define LV_SYMBOL_UNLOCK "\xEF\x82\x93"     // Unlock icon
+#define LV_SYMBOL_CALENDAR "\xEF\x83\xB3"   // Calendar icon
 
 /*====================
    COLOR SETTINGS

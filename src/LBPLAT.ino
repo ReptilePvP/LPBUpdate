@@ -1,4 +1,3 @@
-#include <Adafruit_BusIO_Register.h>
 #include "WiFiManager.h"
 #include <HTTPClient.h>
 #include <Wire.h>
@@ -285,7 +284,7 @@ lv_obj_t* wifi_result_label = nullptr;
 
 const char* shirtColors[] = {
     "Red", "Orange", "Yellow", "Green", "Blue", "Purple", 
-    "Black", "White"
+    "Black", "White", "Grey", "Brown", "Pink"
 };
 
 const char* pantsColors[] = {
@@ -710,7 +709,7 @@ void createViewLogsScreen() {
 
     lv_obj_t* back_btn = lv_btn_create(logs_screen);
     lv_obj_set_size(back_btn, 80, 40);
-    lv_obj_align(back_btn, LV_ALIGN_TOP_LEFT, 10, 0);
+    lv_obj_align(back_btn, LV_ALIGN_BOTTOM_LEFT, 10, 0);
     lv_obj_add_style(back_btn, &style_btn, 0);
     lv_obj_add_style(back_btn, &style_btn_pressed, LV_STATE_PRESSED);
     lv_obj_t* back_label = lv_label_create(back_btn);
@@ -725,7 +724,7 @@ void createViewLogsScreen() {
 
     lv_obj_t* reset_btn = lv_btn_create(logs_screen);
     lv_obj_set_size(reset_btn, 80, 40);
-    lv_obj_align(reset_btn, LV_ALIGN_TOP_RIGHT, -10, 0);
+    lv_obj_align(reset_btn, LV_ALIGN_BOTTOM_RIGHT, -10, 0);
     lv_obj_add_style(reset_btn, &style_btn, 0);
     lv_obj_add_style(reset_btn, &style_btn_pressed, LV_STATE_PRESSED);
     lv_obj_t* reset_label = lv_label_create(reset_btn);
@@ -1518,7 +1517,8 @@ void createColorMenuShirt() {
     ColorInfo colorMap[] = {
         {"Red", 0xFF0000}, {"Orange", 0xFFA500}, {"Yellow", 0xFFFF00},
         {"Green", 0x00FF00}, {"Blue", 0x0000FF}, {"Purple", 0x800080},
-        {"Black", 0x000000}, {"White", 0xFFFFFF}
+        {"Black", 0x000000}, {"White", 0xFFFFFF}, {"Grey", 0x808080},
+        {"Brown", 0xA52A2A}, {"Pink", 0xFFC0CB}
     };
     const int numColors = sizeof(colorMap) / sizeof(colorMap[0]);
     DEBUG_PRINTF("Creating %d shirt color buttons\n", numColors);

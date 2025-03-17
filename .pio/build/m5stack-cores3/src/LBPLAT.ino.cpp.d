@@ -145,16 +145,6 @@
  C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_hw_support/include/hal/cpu_ll.h \
  C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/cores/esp32/io_pin_remap.h \
  C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/cores/esp32/Arduino.h \
- .pio/libdeps/m5stack-cores3/Adafruit\ BusIO/Adafruit_BusIO_Register.h \
- .pio/libdeps/m5stack-cores3/Adafruit\ BusIO/Adafruit_GenericDevice.h \
- .pio/libdeps/m5stack-cores3/Adafruit\ BusIO/Adafruit_I2CDevice.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/Wire/src/Wire.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/cores/esp32/esp32-hal.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/cores/esp32/esp32-hal-log.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/cores/esp32/HardwareI2C.h \
- .pio/libdeps/m5stack-cores3/Adafruit\ BusIO/Adafruit_SPIDevice.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/SPI/src/SPI.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/cores/esp32/esp32-hal-spi.h \
  src/WiFiManager.h \
  C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/WiFi/src/WiFi.h \
  C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/cores/esp32/Print.h \
@@ -298,6 +288,10 @@
  C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/port/include/aes_alt.h \
  C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/entropy.h \
  C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/error.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/Wire/src/Wire.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/cores/esp32/esp32-hal.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/cores/esp32/esp32-hal-log.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/cores/esp32/HardwareI2C.h \
  .pio/libdeps/m5stack-cores3/M5Unified/src/M5Unified.h \
  .pio/libdeps/m5stack-cores3/M5Unified/src/M5Unified.hpp \
  .pio/libdeps/m5stack-cores3/M5Unified/src/utility/m5unified_common.h \
@@ -324,6 +318,8 @@
  .pio/libdeps/m5stack-cores3/M5GFX/src/lgfx/v1/platforms/esp32/../esp32/../../../utility/../internal/memory.h \
  C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/soc/esp32s3/include/soc/i2s_reg.h \
  C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/soc/esp32s3/include/soc/gpio_struct.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/SPI/src/SPI.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/cores/esp32/esp32-hal-spi.h \
  .pio/libdeps/m5stack-cores3/M5GFX/src/lgfx/v1/platforms/esp32/../../../utility/result.hpp \
  .pio/libdeps/m5stack-cores3/M5GFX/src/lgfx/v1/platforms/esp32/Bus_I2C.hpp \
  .pio/libdeps/m5stack-cores3/M5GFX/src/lgfx/v1/platforms/esp32s3/Bus_Parallel8.hpp \
