@@ -17,6 +17,7 @@
 ## Hardware Requirements
 - M5Stack CoreS3
 - M5Stack Dual Button & Key Unit
+- SD Card for storage
 
 ## Project Structure
 
@@ -193,14 +194,14 @@ const char* items[] = {
 - Touch coordinates are properly mapped to the screen
 - Battery level monitoring includes smoothing algorithm
 - WiFi scanning has timeout handling to prevent hanging
-- SD card operations use a dedicated SPI instance
+- SD card operations use a dedicated SPI instance (pins: SCK=36, MISO=35, MOSI=37, CS=4)
 - Memory management includes proper cleanup of screens
 - LVGL styles follow version 8.4.0 conventions
 - Default WiFi credentials are included but can be overridden
 - Debug macros are available for troubleshooting
 - Custom WiFiManager class for robust network handling
-- Time synchronization with NTP servers
-- ESP32Time library for RTC management
+- Date and time configuration with RTC support
+- Power management settings for battery optimization
 
 ## Development Notes
 - The M5Stack CoreS3 uses the M5Unified library
