@@ -121,8 +121,6 @@ String selectedPantsColors = "";
 String selectedShoesColors = "";
 String selectedGender = "";    // Added
 String selectedItem = "";      // Added
-String selectedSleeveType = ""; // Added for sleeve type
-String selectedJacketHoodie = ""; // Added for jacket/hoodie
 
 
 // WiFi connection management
@@ -1519,7 +1517,8 @@ void createColorMenuShirt() {
     ColorInfo colorMap[] = {
         {"Red", 0xFF0000}, {"Orange", 0xFFA500}, {"Yellow", 0xFFFF00},
         {"Green", 0x00FF00}, {"Blue", 0x0000FF}, {"Purple", 0x800080},
-        {"Black", 0x000000}, {"White", 0xFFFFFF}
+        {"Black", 0x000000}, {"White", 0xFFFFFF}, {"Grey", 0x808080},
+        {"Brown", 0xA52A2A}, {"Pink", 0xFFC0CB}
     };
     const int numColors = sizeof(colorMap) / sizeof(colorMap[0]);
     DEBUG_PRINTF("Creating %d shirt color buttons\n", numColors);
@@ -1869,7 +1868,6 @@ void createColorMenuShoes() {
     pants_next_btn = nullptr;
     shoes_next_btn = nullptr;
     current_scroll_obj = nullptr;
-    selectedSleeveType = ""; // Reset sleeve type
 
     DEBUG_PRINTF("Free heap before creation: %d bytes\n", heap_caps_get_free_size(MALLOC_CAP_8BIT));
     colorMenu = lv_obj_create(NULL);
@@ -2041,191 +2039,20 @@ void createColorMenuShoes() {
                 lv_obj_t* old_menu = colorMenu;
                 colorMenu = nullptr;
                 currentEntry += selectedShoesColors + ",";
+                DEBUG_PRINTF("Transitioning to next menu with Shoes: %s\n", selectedShoesColors.c_str());
+                // Replace with your next menu function, e.g., createSummaryMenu()
+                createItemMenu(); // Placeholder - adjust as needed
+                if (old_menu && old_menu != lv_scr_act()) {
+                    lv_obj_del_async(old_menu);
+                }
+            }
+            xSemaphoreGive(xGuiSemaphore);
+        }
+    }, LV_EVENT_CLICKED, NULL);
+    DEBUG_PRINT("Next button created");
 
-// Function to create sleeve type selection screen
-void createSleeveTypeScreen() {
-    DEBUG_PRINT("Creating Sleeve Type Selection Screen");
-    
-    lv_obj_t* sleeve_screen = lv_obj_create(NULL);
-    lv_obj_add_style(sleeve_screen, &style_screen, 0);
-    lv_obj_set_style_bg_color(sleeve_screen, lv_color_hex(0x1A1A1A), 0);
-    lv_obj_set_style_bg_opa(sleeve_screen, LV_OPA_COVER, 0);
-    
-    // Header
-    lv_obj_t* header = lv_obj_create(sleeve_screen);
-    lv_obj_set_size(header, SCREEN_WIDTH - 20, 40);
-    lv_obj_align(header, LV_ALIGN_TOP_MID, 0, 5);
-    lv_obj_set_style_bg_color(header, lv_color_hex(0x3A3A3A), 0);
-    lv_obj_set_style_bg_opa(header, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(header, 10, 0);
-    lv_obj_set_style_border_width(header, 0, 0);
-    lv_obj_t* title = lv_label_create(header);
-    lv_label_set_text(title, "Sleeve Type");
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
-    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_center(title);
-    
-    // Container for options
-    lv_obj_t* container = lv_obj_create(sleeve_screen);
-    lv_obj_set_size(container, SCREEN_WIDTH - 40, 120);
-    lv_obj_align(container, LV_ALIGN_TOP_MID, 0, 60);
-    lv_obj_set_style_bg_color(container, lv_color_hex(0x2D2D2D), 0);
-    lv_obj_set_style_bg_opa(container, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(container, 10, 0);
-    lv_obj_set_style_border_width(container, 0, 0);
-    lv_obj_set_style_pad_all(container, 10, 0);
-    
-    // Short sleeve option
-    lv_obj_t* short_btn = lv_btn_create(container);
-    lv_obj_set_size(short_btn, SCREEN_WIDTH - 80, 40);
-    lv_obj_align(short_btn, LV_ALIGN_TOP_MID, 0, 10);
-    lv_obj_set_style_bg_color(short_btn, lv_color_hex(0x4A4A4A), 0);
-    lv_obj_set_style_bg_opa(short_btn, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(short_btn, 5, 0);
-    
-    lv_obj_t* short_label = lv_label_create(short_btn);
-    lv_label_set_text(short_label, "Short Sleeve");
-    lv_obj_set_style_text_font(short_label, &lv_font_montserrat_16, 0);
-    lv_obj_center(short_label);
-    
-    lv_obj_add_event_cb(short_btn, [](lv_event_t* e) {
-        selectedSleeveType = "Short";
-        DEBUG_PRINTF("Selected sleeve type: %s\n", selectedSleeveType.c_str());
-        createJacketHoodieScreen();
-    }, LV_EVENT_CLICKED, NULL);
-    
-    // Long sleeve option
-    lv_obj_t* long_btn = lv_btn_create(container);
-    lv_obj_set_size(long_btn, SCREEN_WIDTH - 80, 40);
-    lv_obj_align(long_btn, LV_ALIGN_TOP_MID, 0, 60);
-    lv_obj_set_style_bg_color(long_btn, lv_color_hex(0x4A4A4A), 0);
-    lv_obj_set_style_bg_opa(long_btn, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(long_btn, 5, 0);
-    
-    lv_obj_t* long_label = lv_label_create(long_btn);
-    lv_label_set_text(long_label, "Long Sleeve");
-    lv_obj_set_style_text_font(long_label, &lv_font_montserrat_16, 0);
-    lv_obj_center(long_label);
-    
-    lv_obj_add_event_cb(long_btn, [](lv_event_t* e) {
-        selectedSleeveType = "Long";
-        DEBUG_PRINTF("Selected sleeve type: %s\n", selectedSleeveType.c_str());
-        createJacketHoodieScreen();
-    }, LV_EVENT_CLICKED, NULL);
-    
-    // Back button
-    lv_obj_t* back_btn = lv_btn_create(sleeve_screen);
-    lv_obj_set_size(back_btn, 120, 40);
-    lv_obj_align(back_btn, LV_ALIGN_BOTTOM_LEFT, 10, -10);
-    lv_obj_set_style_bg_color(back_btn, lv_color_hex(0x4A4A4A), 0);
-    lv_obj_set_style_bg_opa(back_btn, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(back_btn, 20, 0);
-    
-    lv_obj_t* back_label = lv_label_create(back_btn);
-    lv_label_set_text(back_label, "Back " LV_SYMBOL_LEFT);
-    lv_obj_set_style_text_font(back_label, &lv_font_montserrat_16, 0);
-    lv_obj_center(back_label);
-    
-    lv_obj_add_event_cb(back_btn, [](lv_event_t* e) {
-        selectedSleeveType = "";
-        createColorMenuShoes();
-    }, LV_EVENT_CLICKED, NULL);
-    
-    lv_scr_load(sleeve_screen);
-}
-
-// Function to create jacket/hoodie selection screen
-void createJacketHoodieScreen() {
-    DEBUG_PRINT("Creating Jacket/Hoodie Selection Screen");
-    
-    lv_obj_t* jacket_screen = lv_obj_create(NULL);
-    lv_obj_add_style(jacket_screen, &style_screen, 0);
-    lv_obj_set_style_bg_color(jacket_screen, lv_color_hex(0x1A1A1A), 0);
-    lv_obj_set_style_bg_opa(jacket_screen, LV_OPA_COVER, 0);
-    
-    // Header
-    lv_obj_t* header = lv_obj_create(jacket_screen);
-    lv_obj_set_size(header, SCREEN_WIDTH - 20, 40);
-    lv_obj_align(header, LV_ALIGN_TOP_MID, 0, 5);
-    lv_obj_set_style_bg_color(header, lv_color_hex(0x3A3A3A), 0);
-    lv_obj_set_style_bg_opa(header, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(header, 10, 0);
-    lv_obj_set_style_border_width(header, 0, 0);
-    lv_obj_t* title = lv_label_create(header);
-    lv_label_set_text(title, "Wearing Jacket/Hoodie?");
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
-    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_center(title);
-    
-    // Container for options
-    lv_obj_t* container = lv_obj_create(jacket_screen);
-    lv_obj_set_size(container, SCREEN_WIDTH - 40, 120);
-    lv_obj_align(container, LV_ALIGN_TOP_MID, 0, 60);
-    lv_obj_set_style_bg_color(container, lv_color_hex(0x2D2D2D), 0);
-    lv_obj_set_style_bg_opa(container, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(container, 10, 0);
-    lv_obj_set_style_border_width(container, 0, 0);
-    lv_obj_set_style_pad_all(container, 10, 0);
-    
-    // Yes option
-    lv_obj_t* yes_btn = lv_btn_create(container);
-    lv_obj_set_size(yes_btn, SCREEN_WIDTH - 80, 40);
-    lv_obj_align(yes_btn, LV_ALIGN_TOP_MID, 0, 10);
-    lv_obj_set_style_bg_color(yes_btn, lv_color_hex(0x4A4A4A), 0);
-    lv_obj_set_style_bg_opa(yes_btn, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(yes_btn, 5, 0);
-    
-    lv_obj_t* yes_label = lv_label_create(yes_btn);
-    lv_label_set_text(yes_label, "Yes");
-    lv_obj_set_style_text_font(yes_label, &lv_font_montserrat_16, 0);
-    lv_obj_center(yes_label);
-    
-    lv_obj_add_event_cb(yes_btn, [](lv_event_t* e) {
-        selectedJacketHoodie = "Yes";
-        DEBUG_PRINTF("Selected jacket/hoodie: %s\n", selectedJacketHoodie.c_str());
-        currentEntry += selectedSleeveType + "," + selectedJacketHoodie + ",";
-        createItemMenu();
-    }, LV_EVENT_CLICKED, NULL);
-    
-    // No option
-    lv_obj_t* no_btn = lv_btn_create(container);
-    lv_obj_set_size(no_btn, SCREEN_WIDTH - 80, 40);
-    lv_obj_align(no_btn, LV_ALIGN_TOP_MID, 0, 60);
-    lv_obj_set_style_bg_color(no_btn, lv_color_hex(0x4A4A4A), 0);
-    lv_obj_set_style_bg_opa(no_btn, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(no_btn, 5, 0);
-    
-    lv_obj_t* no_label = lv_label_create(no_btn);
-    lv_label_set_text(no_label, "No");
-    lv_obj_set_style_text_font(no_label, &lv_font_montserrat_16, 0);
-    lv_obj_center(no_label);
-    
-    lv_obj_add_event_cb(no_btn, [](lv_event_t* e) {
-        selectedJacketHoodie = "No";
-        DEBUG_PRINTF("Selected jacket/hoodie: %s\n", selectedJacketHoodie.c_str());
-        currentEntry += selectedSleeveType + "," + selectedJacketHoodie + ",";
-        createItemMenu();
-    }, LV_EVENT_CLICKED, NULL);
-    
-    // Back button
-    lv_obj_t* back_btn = lv_btn_create(jacket_screen);
-    lv_obj_set_size(back_btn, 120, 40);
-    lv_obj_align(back_btn, LV_ALIGN_BOTTOM_LEFT, 10, -10);
-    lv_obj_set_style_bg_color(back_btn, lv_color_hex(0x4A4A4A), 0);
-    lv_obj_set_style_bg_opa(back_btn, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(back_btn, 20, 0);
-    
-    lv_obj_t* back_label = lv_label_create(back_btn);
-    lv_label_set_text(back_label, "Back " LV_SYMBOL_LEFT);
-    lv_obj_set_style_text_font(back_label, &lv_font_montserrat_16, 0);
-    lv_obj_center(back_label);
-    
-    lv_obj_add_event_cb(back_btn, [](lv_event_t* e) {
-        selectedJacketHoodie = "";
-        createSleeveTypeScreen();
-    }, LV_EVENT_CLICKED, NULL);
-    
-    lv_scr_load(jacket_screen);
+    lv_scr_load(colorMenu);
+    DEBUG_PRINT("Shoes color menu loaded");
 }
 
 void createItemMenu() {
@@ -4077,12 +3904,11 @@ static void createDateSelectionScreen() {
     lv_obj_add_style(title, &style_title, 0);
     lv_obj_align(title, LV_ALIGN_CENTER, 0, 0);
 
-    // Container - explicitly disabled scrolling
+    // Container - reduced height to make room for buttons below
     lv_obj_t* container = lv_obj_create(date_screen);
-    lv_obj_set_size(container, SCREEN_WIDTH - 20, SCREEN_HEIGHT - 110);
-    lv_obj_align(container, LV_ALIGN_TOP_MID, 0, 45);
+    lv_obj_set_size(container, SCREEN_WIDTH - 20, SCREEN_HEIGHT - 100);  // Changed height from -60 to -100
+    lv_obj_align(container, LV_ALIGN_TOP_MID, 0, 50);
     lv_obj_set_style_bg_opa(container, LV_OPA_TRANSP, 0);
-    lv_obj_clear_flag(container, LV_OBJ_FLAG_SCROLLABLE); // Explicitly disable scrolling
 
     // Get current date from RTC
     m5::rtc_date_t DateStruct;
@@ -4093,30 +3919,19 @@ static void createDateSelectionScreen() {
     selected_date.month = DateStruct.month;
     selected_date.day = DateStruct.date;
 
-    // Create a background panel for current date display
-    lv_obj_t* current_date_panel = lv_obj_create(container);
-    lv_obj_set_size(current_date_panel, 240, 30);
-    lv_obj_align(current_date_panel, LV_ALIGN_TOP_MID, 0, 0);
-    lv_obj_set_style_bg_color(current_date_panel, lv_color_hex(0x444444), 0); // Dark gray background
-    lv_obj_set_style_bg_opa(current_date_panel, LV_OPA_70, 0);
-    lv_obj_set_style_radius(current_date_panel, 5, 0);
-    lv_obj_set_style_border_width(current_date_panel, 0, 0);
-
-    // Current date display - improved visibility with larger font and contrasting color
-    lv_obj_t* current_date_label = lv_label_create(current_date_panel);
+    // Current date display
+    lv_obj_t* current_date_label = lv_label_create(container);
     char date_str[32];
     snprintf(date_str, sizeof(date_str), "Current Date: %04d-%02d-%02d", 
              DateStruct.year, DateStruct.month, DateStruct.date);
     lv_label_set_text(current_date_label, date_str);
     lv_obj_set_style_text_font(current_date_label, &lv_font_montserrat_16, 0);
-    lv_obj_set_style_text_color(current_date_label, lv_color_hex(0x00FFFF), 0); // Cyan for high visibility
-    lv_obj_center(current_date_label);
+    lv_obj_align(current_date_label, LV_ALIGN_TOP_MID, 0, 0);
 
     // Year picker
     lv_obj_t* year_label = lv_label_create(container);
     lv_label_set_text(year_label, "Year:");
-    lv_obj_set_style_text_color(year_label, lv_color_hex(0xFFFFFF), 0); // White text
-    lv_obj_align(year_label, LV_ALIGN_TOP_LEFT, 10, 40);
+    lv_obj_align(year_label, LV_ALIGN_TOP_LEFT, 10, 30);
     
     g_year_roller = lv_roller_create(container);
     // Create years from 2020 to 2040
@@ -4134,7 +3949,7 @@ static void createDateSelectionScreen() {
     lv_roller_set_options(g_year_roller, years_str, LV_ROLLER_MODE_NORMAL);
     lv_roller_set_visible_row_count(g_year_roller, 3);
     lv_obj_set_width(g_year_roller, 100);
-    lv_obj_align(g_year_roller, LV_ALIGN_TOP_LEFT, 10, 65);
+    lv_obj_align(g_year_roller, LV_ALIGN_TOP_LEFT, 10, 55);
     
     // Set to current year
     lv_roller_set_selected(g_year_roller, DateStruct.year - 2020, LV_ANIM_OFF);
@@ -4142,8 +3957,7 @@ static void createDateSelectionScreen() {
     // Month picker - similar setup
     lv_obj_t* month_label = lv_label_create(container);
     lv_label_set_text(month_label, "Month:");
-    lv_obj_set_style_text_color(month_label, lv_color_hex(0xFFFFFF), 0); // White text
-    lv_obj_align(month_label, LV_ALIGN_TOP_MID, 0, 40);
+    lv_obj_align(month_label, LV_ALIGN_TOP_MID, 0, 30);
     
     g_month_roller = lv_roller_create(container);
     lv_roller_set_options(g_month_roller, 
@@ -4152,7 +3966,7 @@ static void createDateSelectionScreen() {
                         LV_ROLLER_MODE_NORMAL);
     lv_roller_set_visible_row_count(g_month_roller, 3);
     lv_obj_set_width(g_month_roller, 100);
-    lv_obj_align(g_month_roller, LV_ALIGN_TOP_MID, 0, 65);
+    lv_obj_align(g_month_roller, LV_ALIGN_TOP_MID, 0, 55);
     
     // Set to current month
     lv_roller_set_selected(g_month_roller, DateStruct.month - 1, LV_ANIM_OFF);
@@ -4160,8 +3974,7 @@ static void createDateSelectionScreen() {
     // Day picker - similar setup
     lv_obj_t* day_label = lv_label_create(container);
     lv_label_set_text(day_label, "Day:");
-    lv_obj_set_style_text_color(day_label, lv_color_hex(0xFFFFFF), 0); // White text
-    lv_obj_align(day_label, LV_ALIGN_TOP_RIGHT, -10, 40);
+    lv_obj_align(day_label, LV_ALIGN_TOP_RIGHT, -10, 30);
     
     g_day_roller = lv_roller_create(container);
     // Create days from 1 to 31
@@ -4179,16 +3992,15 @@ static void createDateSelectionScreen() {
     lv_roller_set_options(g_day_roller, days_str, LV_ROLLER_MODE_NORMAL);
     lv_roller_set_visible_row_count(g_day_roller, 3);
     lv_obj_set_width(g_day_roller, 100);
-    lv_obj_align(g_day_roller, LV_ALIGN_TOP_RIGHT, -10, 65);
+    lv_obj_align(g_day_roller, LV_ALIGN_TOP_RIGHT, -10, 55);
     
     // Set to current day
     lv_roller_set_selected(g_day_roller, DateStruct.date - 1, LV_ANIM_OFF);
     
-    // Display selected date - moved to a more visible position
+    // Display selected date
     g_selected_date_label = lv_label_create(container);
     lv_obj_set_style_text_font(g_selected_date_label, &lv_font_montserrat_16, 0);
-    lv_obj_set_style_text_color(g_selected_date_label, lv_color_hex(0x4A90E2), 0); // Blue for emphasis
-    lv_obj_align(g_selected_date_label, LV_ALIGN_BOTTOM_MID, 0, -10);
+    lv_obj_align(g_selected_date_label, LV_ALIGN_TOP_MID, 0, 120);
     
     // Initial update
     static auto updateSelectedDateFunc = []() {
@@ -4214,7 +4026,7 @@ static void createDateSelectionScreen() {
     lv_obj_add_event_cb(g_day_roller, on_day_change, LV_EVENT_VALUE_CHANGED, NULL);
     
     // Continue button - moved outside container and positioned lower
-    lv_obj_t* continue_btn = lv_btn_create(date_screen);
+    lv_obj_t* continue_btn = lv_btn_create(date_screen);  // Changed parent to date_screen
     lv_obj_set_size(continue_btn, 120, 40);
     lv_obj_align(continue_btn, LV_ALIGN_BOTTOM_RIGHT, -10, -10);
     lv_obj_add_style(continue_btn, &style_btn, 0);
@@ -4228,7 +4040,7 @@ static void createDateSelectionScreen() {
     }, LV_EVENT_CLICKED, NULL);
     
     // Back button - moved outside container and positioned lower
-    lv_obj_t* back_btn = lv_btn_create(date_screen);
+    lv_obj_t* back_btn = lv_btn_create(date_screen);  // Changed parent to date_screen
     lv_obj_set_size(back_btn, 120, 40);
     lv_obj_align(back_btn, LV_ALIGN_BOTTOM_LEFT, 10, -10);
     lv_obj_add_style(back_btn, &style_btn, 0);
@@ -4263,28 +4075,18 @@ static void createTimeSelectionScreen() {
     lv_obj_add_style(title, &style_title, 0);
     lv_obj_align(title, LV_ALIGN_CENTER, 0, 0);
 
-    // Container - explicitly disabled scrolling
+    // Container - reduced height to make room for buttons below
     lv_obj_t* container = lv_obj_create(time_screen);
-    lv_obj_set_size(container, SCREEN_WIDTH - 20, SCREEN_HEIGHT - 110);
-    lv_obj_align(container, LV_ALIGN_TOP_MID, 0, 45);
+    lv_obj_set_size(container, SCREEN_WIDTH - 20, SCREEN_HEIGHT - 100);  // Changed height from -60 to -100
+    lv_obj_align(container, LV_ALIGN_TOP_MID, 0, 50);
     lv_obj_set_style_bg_opa(container, LV_OPA_TRANSP, 0);
-    lv_obj_clear_flag(container, LV_OBJ_FLAG_SCROLLABLE); // Explicitly disable scrolling
 
     // Get current time from RTC
     m5::rtc_time_t TimeStruct;
     M5.Rtc.getTime(&TimeStruct);
 
-    // Create a panel for the date display
-    lv_obj_t* date_panel = lv_obj_create(container);
-    lv_obj_set_size(date_panel, 240, 30);
-    lv_obj_align(date_panel, LV_ALIGN_TOP_MID, 0, 0);
-    lv_obj_set_style_bg_color(date_panel, lv_color_hex(0x444444), 0); // Dark gray background
-    lv_obj_set_style_bg_opa(date_panel, LV_OPA_70, 0);
-    lv_obj_set_style_radius(date_panel, 5, 0);
-    lv_obj_set_style_border_width(date_panel, 0, 0);
-
-    // Current date display with better visibility
-    lv_obj_t* date_label = lv_label_create(date_panel);
+    // Current date display
+    lv_obj_t* date_label = lv_label_create(container);
     char date_str[32];
     m5::rtc_date_t DateStruct;
     M5.Rtc.getDate(&DateStruct);
@@ -4292,33 +4094,21 @@ static void createTimeSelectionScreen() {
              selected_date.year, selected_date.month, selected_date.day);
     lv_label_set_text(date_label, date_str);
     lv_obj_set_style_text_font(date_label, &lv_font_montserrat_16, 0);
-    lv_obj_set_style_text_color(date_label, lv_color_hex(0x00FFFF), 0); // Cyan for high visibility
-    lv_obj_center(date_label);
+    lv_obj_align(date_label, LV_ALIGN_TOP_MID, 0, 0);
 
-    // Create a panel for the time display
-    lv_obj_t* time_panel = lv_obj_create(container);
-    lv_obj_set_size(time_panel, 240, 30);
-    lv_obj_align(time_panel, LV_ALIGN_TOP_MID, 0, 35);
-    lv_obj_set_style_bg_color(time_panel, lv_color_hex(0x444444), 0); // Dark gray background
-    lv_obj_set_style_bg_opa(time_panel, LV_OPA_70, 0);
-    lv_obj_set_style_radius(time_panel, 5, 0);
-    lv_obj_set_style_border_width(time_panel, 0, 0);
-
-    // Current time display with better visibility
-    lv_obj_t* current_time_label = lv_label_create(time_panel);
+    // Current time display
+    lv_obj_t* current_time_label = lv_label_create(container);
     char time_str[32];
     snprintf(time_str, sizeof(time_str), "Current Time: %02d:%02d:%02d", 
              TimeStruct.hours, TimeStruct.minutes, TimeStruct.seconds);
     lv_label_set_text(current_time_label, time_str);
     lv_obj_set_style_text_font(current_time_label, &lv_font_montserrat_16, 0);
-    lv_obj_set_style_text_color(current_time_label, lv_color_hex(0x00FFFF), 0); // Cyan for high visibility
-    lv_obj_center(current_time_label);
+    lv_obj_align(current_time_label, LV_ALIGN_TOP_MID, 0, 30);
 
     // Hour picker
     lv_obj_t* hour_label = lv_label_create(container);
     lv_label_set_text(hour_label, "Hour:");
-    lv_obj_set_style_text_color(hour_label, lv_color_hex(0xFFFFFF), 0); // White for visibility
-    lv_obj_align(hour_label, LV_ALIGN_TOP_LEFT, 20, 75);
+    lv_obj_align(hour_label, LV_ALIGN_TOP_LEFT, 20, 70);
     
     g_hour_roller = lv_roller_create(container);
     // Create hours from 0 to 23
@@ -4336,7 +4126,7 @@ static void createTimeSelectionScreen() {
     lv_roller_set_options(g_hour_roller, hours_str, LV_ROLLER_MODE_NORMAL);
     lv_roller_set_visible_row_count(g_hour_roller, 3);
     lv_obj_set_width(g_hour_roller, 80);
-    lv_obj_align(g_hour_roller, LV_ALIGN_TOP_LEFT, 20, 100);
+    lv_obj_align(g_hour_roller, LV_ALIGN_TOP_LEFT, 20, 95);
     
     // Set to current hour
     lv_roller_set_selected(g_hour_roller, TimeStruct.hours, LV_ANIM_OFF);
@@ -4345,8 +4135,7 @@ static void createTimeSelectionScreen() {
     // Minute picker
     lv_obj_t* minute_label = lv_label_create(container);
     lv_label_set_text(minute_label, "Minute:");
-    lv_obj_set_style_text_color(minute_label, lv_color_hex(0xFFFFFF), 0); // White for visibility
-    lv_obj_align(minute_label, LV_ALIGN_TOP_RIGHT, -20, 75);
+    lv_obj_align(minute_label, LV_ALIGN_TOP_RIGHT, -20, 70);
     
     g_minute_roller = lv_roller_create(container);
     // Create minutes from 0 to 59
@@ -4364,17 +4153,16 @@ static void createTimeSelectionScreen() {
     lv_roller_set_options(g_minute_roller, minutes_str, LV_ROLLER_MODE_NORMAL);
     lv_roller_set_visible_row_count(g_minute_roller, 3);
     lv_obj_set_width(g_minute_roller, 80);
-    lv_obj_align(g_minute_roller, LV_ALIGN_TOP_RIGHT, -20, 100);
+    lv_obj_align(g_minute_roller, LV_ALIGN_TOP_RIGHT, -20, 95);
     
     // Set to current minute
     lv_roller_set_selected(g_minute_roller, TimeStruct.minutes, LV_ANIM_OFF);
     selected_minute = TimeStruct.minutes;
     
-    // Display selected time in a more visible position
+    // Display selected time
     g_selected_time_label = lv_label_create(container);
     lv_obj_set_style_text_font(g_selected_time_label, &lv_font_montserrat_16, 0);
-    lv_obj_set_style_text_color(g_selected_time_label, lv_color_hex(0x4A90E2), 0); // Blue for emphasis
-    lv_obj_align(g_selected_time_label, LV_ALIGN_BOTTOM_MID, 0, -10);
+    lv_obj_align(g_selected_time_label, LV_ALIGN_TOP_MID, 0, 150);
     
     // Event handlers for roller changes - using global callback functions
     lv_obj_add_event_cb(g_hour_roller, on_hour_change, LV_EVENT_VALUE_CHANGED, NULL);
@@ -4386,20 +4174,42 @@ static void createTimeSelectionScreen() {
              selected_hour, selected_minute);
     lv_label_set_text(g_selected_time_label, selected_time_str);
     
-    // Save button
+    // Save button - simplified approach without confirmation dialog
     lv_obj_t* save_btn = lv_btn_create(time_screen);
     lv_obj_set_size(save_btn, 120, 40);
     lv_obj_align(save_btn, LV_ALIGN_BOTTOM_RIGHT, -10, -10);
     lv_obj_add_style(save_btn, &style_btn, 0);
     lv_obj_add_style(save_btn, &style_btn_pressed, LV_STATE_PRESSED);
+    lv_obj_set_style_bg_color(save_btn, lv_color_hex(0x00AA00), 0); // Green color
     lv_obj_t* save_label = lv_label_create(save_btn);
     lv_label_set_text(save_label, "Save");
     lv_obj_center(save_label);
     
-    lv_obj_add_event_cb(save_btn, confirm_dialog_event_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(save_btn, [](lv_event_t* e) {
+        // Show a temporary "Saving..." message
+        lv_obj_t* saving_label = lv_label_create(lv_scr_act());
+        lv_label_set_text(saving_label, "Saving...");
+        lv_obj_set_style_text_font(saving_label, &lv_font_montserrat_16, 0);
+        lv_obj_center(saving_label);
+        
+        // Process the label creation immediately
+        lv_task_handler();
+        
+        // Save the time to RTC
+        save_time_to_rtc();
+        
+        // Use a safe timer to navigate back to settings
+        lv_timer_t* timer = lv_timer_create([](lv_timer_t* t) {
+            // Navigate back to settings screen
+            if (lv_scr_act()) {
+                createSettingsScreen();
+            }
+            lv_timer_del(t);
+        }, 500, NULL);
+    }, LV_EVENT_CLICKED, NULL);
     
-    // Back button
-    lv_obj_t* back_btn = lv_btn_create(time_screen);
+    // Back button - moved outside container and positioned lower
+    lv_obj_t* back_btn = lv_btn_create(time_screen);  // Changed parent to time_screen
     lv_obj_set_size(back_btn, 120, 40);
     lv_obj_align(back_btn, LV_ALIGN_BOTTOM_LEFT, 10, -10);
     lv_obj_add_style(back_btn, &style_btn, 0);
@@ -4417,51 +4227,45 @@ static void createTimeSelectionScreen() {
 
 // Define the callback functions for date selection
 static void on_year_change(lv_event_t* e) {
-    // Update the selected date display when year changes
+    // Update the selected date when year changes
     int year = 2020 + lv_roller_get_selected(g_year_roller);
     int month = lv_roller_get_selected(g_month_roller) + 1;
     int day = lv_roller_get_selected(g_day_roller) + 1;
     
-    // Update the global selected_date variable
     selected_date.year = year;
     selected_date.month = month;
     selected_date.day = day;
     
-    // Update the display
     char date_str[64];
     snprintf(date_str, sizeof(date_str), "Selected: %04d-%02d-%02d", year, month, day);
     lv_label_set_text(g_selected_date_label, date_str);
 }
 
 static void on_month_change(lv_event_t* e) {
-    // Update the selected date display when month changes
+    // Update the selected date when month changes
     int year = 2020 + lv_roller_get_selected(g_year_roller);
     int month = lv_roller_get_selected(g_month_roller) + 1;
     int day = lv_roller_get_selected(g_day_roller) + 1;
     
-    // Update the global selected_date variable
     selected_date.year = year;
     selected_date.month = month;
     selected_date.day = day;
     
-    // Update the display
     char date_str[64];
     snprintf(date_str, sizeof(date_str), "Selected: %04d-%02d-%02d", year, month, day);
     lv_label_set_text(g_selected_date_label, date_str);
 }
 
 static void on_day_change(lv_event_t* e) {
-    // Update the selected date display when day changes
+    // Update the selected date when day changes
     int year = 2020 + lv_roller_get_selected(g_year_roller);
     int month = lv_roller_get_selected(g_month_roller) + 1;
     int day = lv_roller_get_selected(g_day_roller) + 1;
     
-    // Update the global selected_date variable
     selected_date.year = year;
     selected_date.month = month;
     selected_date.day = day;
     
-    // Update the display
     char date_str[64];
     snprintf(date_str, sizeof(date_str), "Selected: %04d-%02d-%02d", year, month, day);
     lv_label_set_text(g_selected_date_label, date_str);
@@ -4469,23 +4273,23 @@ static void on_day_change(lv_event_t* e) {
 
 // Define the callback functions for time selection
 static void on_hour_change(lv_event_t* e) {
-    // Update the selected time display when hour changes
+    // Update selected hour when hour roller changes
     selected_hour = lv_roller_get_selected(g_hour_roller);
     
-    // Update the display
-    char time_str[32];
-    snprintf(time_str, sizeof(time_str), "Selected: %02d:%02d", 
+    // Update the displayed time
+    char selected_time_str[32];
+    snprintf(selected_time_str, sizeof(selected_time_str), "Selected: %02d:%02d", 
              selected_hour, selected_minute);
-    lv_label_set_text(g_selected_time_label, time_str);
+    lv_label_set_text(g_selected_time_label, selected_time_str);
 }
 
 static void on_minute_change(lv_event_t* e) {
-    // Update the selected time display when minute changes
+    // Update selected minute when minute roller changes
     selected_minute = lv_roller_get_selected(g_minute_roller);
     
-    // Update the display
-    char time_str[32];
-    snprintf(time_str, sizeof(time_str), "Selected: %02d:%02d", 
+    // Update the displayed time
+    char selected_time_str[32];
+    snprintf(selected_time_str, sizeof(selected_time_str), "Selected: %02d:%02d", 
              selected_hour, selected_minute);
-    lv_label_set_text(g_selected_time_label, time_str);
+    lv_label_set_text(g_selected_time_label, selected_time_str);
 }
