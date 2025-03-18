@@ -145,153 +145,6 @@
  C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_hw_support/include/hal/cpu_ll.h \
  C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/cores/esp32/io_pin_remap.h \
  C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/cores/esp32/Arduino.h \
- src/WiFiManager.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/WiFi/src/WiFi.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/cores/esp32/Print.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/WiFi/src/WiFiType.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_wifi/include/esp_wifi_types.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_wifi/include/esp_private/esp_wifi_types_private.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_hw_support/include/esp_interface.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_event/include/esp_event_base.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/WiFi/src/WiFiSTA.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/WiFi/src/WiFiGeneric.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_wifi/include/esp_smartconfig.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_netif/include/esp_netif_types.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_netif/include/esp_netif_ip_addr.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_eth/include/esp_eth_driver.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_eth/include/esp_eth_com.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/hal/include/hal/eth_types.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_eth/include/esp_eth_spec.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_eth/include/esp_eth_mac.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/driver/spi/include/driver/spi_master.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/hal/include/hal/spi_types.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/driver/spi/include/driver/spi_common.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_system/include/esp_ipc.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_hw_support/include/intr_types.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_eth/include/esp_eth_phy.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/wifi_provisioning/include/wifi_provisioning/manager.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/protocomm/include/common/protocomm.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/protocomm/include/security/protocomm_security.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/wifi_provisioning/include/wifi_provisioning/wifi_config.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/Network/src/Network.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/Network/src/NetworkInterface.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/cores/esp32/Printable.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/Network/src/NetworkEvents.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/Network/src/NetworkManager.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/cores/esp32/WString.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/Network/src/NetworkClient.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/cores/esp32/Client.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/Network/src/NetworkServer.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/cores/esp32/Server.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/Network/src/NetworkUdp.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/cores/esp32/Udp.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/cores/esp32/cbuf.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_ringbuf/include/freertos/ringbuf.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/WiFi/src/WiFiAP.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/WiFi/src/WiFiScan.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/WiFi/src/WiFiClient.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/WiFi/src/WiFiServer.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/WiFi/src/WiFiUdp.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/Network/src/NetworkUdp.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/Preferences/src/Preferences.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/HTTPClient/src/HTTPClient.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/NetworkClientSecure/src/NetworkClientSecure.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/NetworkClientSecure/src/ssl_client.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/platform.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/private_access.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/build_info.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/port/include/mbedtls/esp_config.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/mbedtls_config.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/port/include/esp_mem.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/config_psa.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto_legacy.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto_adjust_config_synonyms.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/config_adjust_psa_superset_legacy.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/config_adjust_psa_from_legacy.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto_adjust_config_key_pair_types.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto_adjust_auto_enabled.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/config_adjust_legacy_crypto.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/config_adjust_x509.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/config_adjust_ssl.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/check_config.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/platform_time.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/net_sockets.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/ssl.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/platform_util.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/port/include/mbedtls/bignum.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/bignum.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/port/include/mbedtls/ecp.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/ecp.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/ssl_ciphersuites.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/pk.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/md.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/rsa.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/ecdsa.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto_platform.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/build_info.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto_types.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto_values.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto_sizes.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto_struct.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto_driver_contexts_primitives.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto_driver_common.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto_sizes.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto_builtin_primitives.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/md5.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/port/include/md5_alt.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/port/include/md/esp_md.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_rom/include/esp_rom_md5.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/ripemd160.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/sha1.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/port/include/sha1_alt.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/hal/include/hal/sha_types.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_rom/include/esp32s3/rom/sha.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_rom/include/esp32s3/rom/ets_sys.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/sha256.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/port/include/sha256_alt.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/sha512.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/port/include/sha512_alt.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/sha3.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/cipher.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto_driver_contexts_composites.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto_builtin_composites.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/cmac.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/port/include/mbedtls/gcm.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/gcm.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/port/include/gcm_alt.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/port/include/aes/esp_aes_gcm.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/port/include/aes/esp_aes.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_common/include/esp_types.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/hal/include/hal/aes_types.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/soc/include/soc/lldesc.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_rom/include/esp_rom_lldesc.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/ccm.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/chachapoly.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/poly1305.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/chacha20.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/ecjpake.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto_driver_contexts_key_derivation.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto_builtin_key_derivation.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto_extra.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto_compat.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/x509_crt.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/x509.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/asn1.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/x509_crl.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/ecdh.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/debug.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/entropy.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/md.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/ctr_drbg.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/aes.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/port/include/aes_alt.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/entropy.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/error.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/Wire/src/Wire.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/cores/esp32/esp32-hal.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/cores/esp32/esp32-hal-log.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/cores/esp32/HardwareI2C.h \
  .pio/libdeps/m5stack-cores3/M5Unified/src/M5Unified.h \
  .pio/libdeps/m5stack-cores3/M5Unified/src/M5Unified.hpp \
  .pio/libdeps/m5stack-cores3/M5Unified/src/utility/m5unified_common.h \
@@ -302,7 +155,12 @@
  .pio/libdeps/m5stack-cores3/M5GFX/src/lgfx/v1/platforms/esp32/../../Light.hpp \
  .pio/libdeps/m5stack-cores3/M5GFX/src/lgfx/v1/platforms/esp32/Bus_SPI.hpp \
  C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_rom/include/esp32s3/rom/lldesc.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_rom/include/esp_rom_lldesc.h \
  C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/driver/include/esp_private/spi_common_internal.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/driver/spi/include/driver/spi_common.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_system/include/esp_ipc.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_hw_support/include/intr_types.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/hal/include/hal/spi_types.h \
  C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_pm/include/esp_pm.h \
  C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_hw_support/include/esp_private/gdma.h \
  C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/soc/esp32s3/include/soc/gdma_channel.h \
@@ -320,6 +178,10 @@
  C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/soc/esp32s3/include/soc/gpio_struct.h \
  C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/SPI/src/SPI.h \
  C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/cores/esp32/esp32-hal-spi.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/Wire/src/Wire.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/cores/esp32/esp32-hal.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/cores/esp32/esp32-hal-log.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/cores/esp32/HardwareI2C.h \
  .pio/libdeps/m5stack-cores3/M5GFX/src/lgfx/v1/platforms/esp32/../../../utility/result.hpp \
  .pio/libdeps/m5stack-cores3/M5GFX/src/lgfx/v1/platforms/esp32/Bus_I2C.hpp \
  .pio/libdeps/m5stack-cores3/M5GFX/src/lgfx/v1/platforms/esp32s3/Bus_Parallel8.hpp \
@@ -331,6 +193,7 @@
  .pio/libdeps/m5stack-cores3/M5GFX/src/lgfx/v1/lgfx_filesystem_support.hpp \
  .pio/libdeps/m5stack-cores3/M5GFX/src/lgfx/v1/../internal/alloca.h \
  .pio/libdeps/m5stack-cores3/M5GFX/src/lgfx/v1/LGFXBase.hpp \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/cores/esp32/Print.h \
  .pio/libdeps/m5stack-cores3/M5GFX/src/lgfx/v1/misc/colortype.hpp \
  .pio/libdeps/m5stack-cores3/M5GFX/src/lgfx/v1/misc/../../utility/pgmspace.h \
  .pio/libdeps/m5stack-cores3/M5GFX/src/lgfx/v1/misc/pixelcopy.hpp \
@@ -348,6 +211,7 @@
  .pio/libdeps/m5stack-cores3/M5Unified/src/utility/RTC8563_Class.hpp \
  .pio/libdeps/m5stack-cores3/M5Unified/src/utility/I2C_Class.hpp \
  C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/driver/i2c/include/driver/i2c.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_common/include/esp_types.h \
  C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/hal/include/hal/i2c_types.h \
  .pio/libdeps/m5stack-cores3/M5Unified/src/utility/AXP192_Class.hpp \
  .pio/libdeps/m5stack-cores3/M5Unified/src/utility/IP5306_Class.hpp \
@@ -376,7 +240,7 @@
  .pio/libdeps/m5stack-cores3/M5Unified/src/utility/IMU_Class.hpp \
  .pio/libdeps/m5stack-cores3/M5Unified/src/utility/imu/IMU_Base.hpp \
  .pio/libdeps/m5stack-cores3/M5Unified/src/utility/imu/../I2C_Class.hpp \
- src/lv_conf.h .pio/libdeps/m5stack-cores3/lvgl/lvgl.h \
+ .pio/libdeps/m5stack-cores3/lvgl/lvgl.h \
  .pio/libdeps/m5stack-cores3/lvgl/src/misc/lv_log.h \
  .pio/libdeps/m5stack-cores3/lvgl/src/misc/../lv_conf_internal.h \
  .pio/libdeps/m5stack-cores3/lvgl/src/misc/../lv_conf_kconfig.h \
@@ -601,4 +465,140 @@
  .pio/libdeps/m5stack-cores3/lvgl/src/extra/widgets/span/../../../lvgl.h \
  C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/SD/src/SD.h \
  C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/FS/src/FS.h \
- C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/SD/src/sd_defines.h
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/SD/src/sd_defines.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/WiFi/src/WiFi.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/WiFi/src/WiFiType.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_wifi/include/esp_wifi_types.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_wifi/include/esp_private/esp_wifi_types_private.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_hw_support/include/esp_interface.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_event/include/esp_event_base.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/WiFi/src/WiFiSTA.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/WiFi/src/WiFiGeneric.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_wifi/include/esp_smartconfig.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_netif/include/esp_netif_types.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_netif/include/esp_netif_ip_addr.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_eth/include/esp_eth_driver.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_eth/include/esp_eth_com.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/hal/include/hal/eth_types.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_eth/include/esp_eth_spec.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_eth/include/esp_eth_mac.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/driver/spi/include/driver/spi_master.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_eth/include/esp_eth_phy.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/wifi_provisioning/include/wifi_provisioning/manager.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/protocomm/include/common/protocomm.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/protocomm/include/security/protocomm_security.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/wifi_provisioning/include/wifi_provisioning/wifi_config.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/Network/src/Network.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/Network/src/NetworkInterface.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/cores/esp32/Printable.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/Network/src/NetworkEvents.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/Network/src/NetworkManager.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/cores/esp32/WString.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/Network/src/NetworkClient.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/cores/esp32/Client.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/Network/src/NetworkServer.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/cores/esp32/Server.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/Network/src/NetworkUdp.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/cores/esp32/Udp.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/cores/esp32/cbuf.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_ringbuf/include/freertos/ringbuf.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/WiFi/src/WiFiAP.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/WiFi/src/WiFiScan.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/WiFi/src/WiFiClient.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/WiFi/src/WiFiServer.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/WiFi/src/WiFiUdp.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/Network/src/NetworkUdp.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/HTTPClient/src/HTTPClient.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/NetworkClientSecure/src/NetworkClientSecure.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/NetworkClientSecure/src/ssl_client.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/platform.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/private_access.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/build_info.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/port/include/mbedtls/esp_config.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/mbedtls_config.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/port/include/esp_mem.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/config_psa.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto_legacy.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto_adjust_config_synonyms.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/config_adjust_psa_superset_legacy.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/config_adjust_psa_from_legacy.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto_adjust_config_key_pair_types.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto_adjust_auto_enabled.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/config_adjust_legacy_crypto.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/config_adjust_x509.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/config_adjust_ssl.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/check_config.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/platform_time.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/net_sockets.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/ssl.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/platform_util.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/port/include/mbedtls/bignum.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/bignum.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/port/include/mbedtls/ecp.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/ecp.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/ssl_ciphersuites.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/pk.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/md.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/rsa.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/ecdsa.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto_platform.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/build_info.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto_types.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto_values.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto_sizes.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto_struct.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto_driver_contexts_primitives.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto_driver_common.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto_sizes.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto_builtin_primitives.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/md5.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/port/include/md5_alt.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/port/include/md/esp_md.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_rom/include/esp_rom_md5.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/ripemd160.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/sha1.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/port/include/sha1_alt.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/hal/include/hal/sha_types.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_rom/include/esp32s3/rom/sha.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/esp_rom/include/esp32s3/rom/ets_sys.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/sha256.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/port/include/sha256_alt.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/sha512.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/port/include/sha512_alt.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/sha3.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/cipher.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto_driver_contexts_composites.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto_builtin_composites.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/cmac.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/port/include/mbedtls/gcm.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/gcm.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/port/include/gcm_alt.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/port/include/aes/esp_aes_gcm.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/port/include/aes/esp_aes.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/hal/include/hal/aes_types.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/soc/include/soc/lldesc.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/ccm.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/chachapoly.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/poly1305.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/chacha20.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/ecjpake.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto_driver_contexts_key_derivation.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto_builtin_key_derivation.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto_extra.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/psa/crypto_compat.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/x509_crt.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/x509.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/asn1.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/x509_crl.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/ecdh.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/debug.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/entropy.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/md.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/ctr_drbg.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/aes.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/port/include/aes_alt.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/entropy.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/include/mbedtls/mbedtls/include/mbedtls/error.h \
+ C:/Users/nickd/.platformio/packages/framework-arduinoespressif32@src-0c9bc5a2e917d2a24b2fba29cb704cc7/libraries/Preferences/src/Preferences.h \
+ src/Config.h src/WiFiManager.h src/FileManager.h src/UIHelper.h

@@ -2,5 +2,6 @@
     "files.associations": {
         "*.tcc": "cpp",
         "fstream": "cpp"
-    }
+    },
+    "CodeGPT.apiKey": "CodeGPT Plus Beta"
 }
